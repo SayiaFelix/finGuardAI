@@ -77,6 +77,51 @@ RISK_MODELS_JOBLIB = os.path.join(CACHE_DIR, 'risk_models.joblib')
 SCALER_DATA = os.path.join(CACHE_DIR, 'scaler.pkl')
 file_path = os.path.join(DATA_DIR, "fraud_detection_data.csv")
 
+# Saving to pickle function
+def save_to_pickle(data, filename):
+    """ Save only the selected important features to a pickle file """
+    try:
+        with open(filename, 'wb') as file:
+            pickle.dump(data, file)
+        logger.info(f"{file} Pickle File saved successfully to {filename} !!!!!!!")
+    except Exception as e:
+        logger.error(f"Error saving {file} Pickle File !!!!!: {str(e)}")
+        raise
+
+# Loading from pickle function
+def load_from_pickle(filename):
+    if os.path.exists(filename):
+        with open(filename, 'rb') as file:
+            data = pickle.load(file)
+            logger.info(f"Important features saved successfully to {filename}")
+        return data
+    else:
+        return {} 
+
+
+# Saving the trained model to a file
+def save_model_to_JobLib(model, filename):
+    joblib.dump(model, filename)
+    print(f"Model saved as {filename}")
+    
+#### Loading the saved model from a file
+def load_model_from_JobLib(filename):
+    model = joblib.load(filename)
+    print(f"Model loaded from {filename}")
+    return model
+
+def load_or_initialize_pickle(filename, data):
+    """Load pickle file if it exists, or initialize it with default_data."""
+    if os.path.exists(filename):
+        with open(filename, 'rb') as file:
+            return pickle.load(file)
+    else:
+        # Initialize with default data and save
+        with open(filename, 'wb') as file:
+            pickle.dump(data, file)
+        return data
+    
+
 
 
 @app.route('/v2/api/test', methods=['GET'])
