@@ -177,7 +177,7 @@ def prepare_data(file_path):
     # Dropping unnecessary columns
     data = data.drop(['Transaction_ID', 'Account_ID', 'Transaction_Date'], axis=1)
 
-    # Convert IP addresses and other IDs to integer values
+    # Converting IP addresses and other IDs to integer values
     def convert_to_integer(value):
         try:
             value = str(value)
