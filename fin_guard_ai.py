@@ -223,7 +223,14 @@ def feature_selection_rf(X_train, y_train, original_columns):
     rf_selected_feat = [original_columns[i] for i in sel_rf.get_support(indices=True)]
     return rf_selected_feat
 
-
+def feature_selection_lasso(X_train, y_train, original_columns):
+    """ Feature selection using LassoCV """
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    lasso = LassoCV(cv=5, random_state=42)
+    lasso.fit(X_train_scaled, y_train)
+    lasso_selected_feat = [original_columns[i] for i in np.where(lasso.coef_ != 0)[0]]
+    return lasso_selected_feat
 
 
 
