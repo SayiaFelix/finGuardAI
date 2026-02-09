@@ -215,6 +215,13 @@ def prepare_data(file_path):
     # logger.info('Data', data)
     return data
 
+def feature_selection_rf(X_train, y_train, original_columns):
+    """ Feature selection using RandomForestClassifier """
+    rf = RandomForestClassifier(n_estimators=100, random_state=42)
+    sel_rf = SelectFromModel(rf, threshold='median')
+    sel_rf.fit(X_train, y_train)
+    rf_selected_feat = [original_columns[i] for i in sel_rf.get_support(indices=True)]
+    return rf_selected_feat
 
 
 
