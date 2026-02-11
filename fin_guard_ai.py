@@ -243,6 +243,11 @@ def feature_selection_xgb(X_train, y_train, original_columns):
     xgb_selected_feat = [original_columns[i] for i in sel_xgb.get_support(indices=True)]
     return xgb_selected_feat
 
+def combine_selected_features(rf_selected_feat, lasso_selected_feat, xgb_selected_feat):
+    """ Combine features selected by RF, LassoCV, and XGBoost """
+    overall_selected_features = set(rf_selected_feat) | set(lasso_selected_feat) | set(xgb_selected_feat)
+    return list(overall_selected_features)
+
 
 
 
