@@ -232,6 +232,17 @@ def feature_selection_lasso(X_train, y_train, original_columns):
     lasso_selected_feat = [original_columns[i] for i in np.where(lasso.coef_ != 0)[0]]
     return lasso_selected_feat
 
+def feature_selection_xgb(X_train, y_train, original_columns):
+    """ Feature selection using XGBoost """
+    count = Counter(y_train)
+    scale_pos_weight = count[0] / count[1]
+    
+    xgb = XGBClassifier(n_estimators=100, random_state=42, use_label_encoder=False, eval_metric='logloss', scale_pos_weight=scale_pos_weight)
+    sel_xgb = SelectFromModel(xgb, threshold='median')
+    sel_xgb.fit(X_train, y_train)
+    xgb_selected_feat = [original_columns[i] for i in sel_xgb.get_support(indices=True)]
+    return xgb_selected_feat
+
 
 
 
