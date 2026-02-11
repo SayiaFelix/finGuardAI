@@ -248,6 +248,35 @@ def combine_selected_features(rf_selected_feat, lasso_selected_feat, xgb_selecte
     overall_selected_features = set(rf_selected_feat) | set(lasso_selected_feat) | set(xgb_selected_feat)
     return list(overall_selected_features)
 
+def prepare_and_split_data():
+    """ Function to load, prepare data, and split it into training and testing sets """
+    
+    try:
+        # Load data from pickle
+        data = prepare_data(file_path)
+        logger.info('Data loaded', extra={'columns': data.columns.tolist()})
+        
+        # Extract target variable
+        y = data['Class']
+        
+        # Load selected features from pickle
+        overall_selected_features = load_from_pickle(IMPORTANT_FEATURES_PKL)
+        logger.info('Loaded selected features from pickle', extra={'features': overall_selected_features})
+        
+        # Prepare feature set
+        X = data[overall_selected_features]
+        logger.info('Prepared feature set', extra={'features': X.columns.tolist()})
+        
+        # Splitting data into training and testing sets
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
+        logger.info(f'Training set size: {X_train.shape}, Test set size: {X_test.shape}')
+
+        return X_train, X_test, y_train, y_test
+    
+    except Exception as e:
+        logger.error(f"Error in preparing and splitting data: {str(e)}")
+        raise
+
 
 
 
