@@ -267,7 +267,7 @@ def prepare_and_split_data():
         overall_selected_features = load_from_pickle(IMPORTANT_FEATURES_PKL)
         logger.info('Loaded selected features from pickle', extra={'features': overall_selected_features})
         
-        # Prepare feature set
+        # Prepare feature
         X = data[overall_selected_features]
         logger.info('Prepared feature set', extra={'features': X.columns.tolist()})
         
