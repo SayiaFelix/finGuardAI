@@ -143,7 +143,7 @@ models = {
         'CatBoost': CatBoostClassifier(n_estimators=100, learning_rate=0.1, depth=6, class_weights=[1, 5], verbose=0, random_state=42),
     }
 
-##############  Helper functions
+#####################################################  Helper functions #####################################################################
 
 # Data preparation
 def prepare_data(file_path):
@@ -281,7 +281,6 @@ def prepare_and_split_data():
         logger.error(f"Error in preparing and splitting data: {str(e)}")
         raise
 
-
 # Function to calculate feature importance weight
 def calculate_feature_importance_weights():
     """ Calculate feature importance weights using RandomForest, Lasso, and XGBoost models """ 
@@ -411,16 +410,16 @@ def real_time_risk_scoring(transaction, models, weights_map):
     
     transaction_features = transaction[overall_selected_features]
     
-    # Get predictions from all models
+    # predictions from all models
     predictions = []
     probabilities = []
     
     for name, model in models.items():
-        # Get probability of fraud (class 1)
+        # probability of fraud (class 1)
         prob = model.predict_proba(transaction_features.values.reshape(1, -1))[:, 1][0]
         probabilities.append(prob)
         
-        # Get binary prediction
+        # binary prediction
         pred = model.predict(transaction_features.values.reshape(1, -1))[0]
         predictions.append(pred)
     
