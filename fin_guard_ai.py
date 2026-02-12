@@ -338,6 +338,67 @@ def calculate_feature_importance_weights():
     
     return sorted_weights
 
+#  normalize_and_categorize_risk_scores
+def normalize_and_categorize_risk_scores():
+  
+    X_train, X_test, y_train, y_test = prepare_and_split_data()
+
+    # Fitting each model to the training data
+    print('Training models, Saving and Calculating risk scores...')
+    for name, model in models.items():
+        model.fit(X_train, y_train)
+        print(f'{name} model saved as {name}_model.joblib successfully!!!!!!!!!')
+    
+    # Saving all models 
+    save_model_to_JobLib(models, RISK_MODELS_JOBLIB)
+    print(f"All models saved in '{RISK_MODELS_JOBLIB}' successfully!!!!!")
+    
+    results_df = pd.DataFrame(X_test)
+    results_df['True_Label'] = y_test
+
+    # Placeholder for aggregated scores
+    aggregated_scores = np.zeros(len(X_test))
+
+    # Risk scores for each model and average them
+    for name, model in models.items():
+        # Predict probabilities (risk scores)
+        risk_scores = model.predict_proba(X_test)[:, 1]  # Probability of positive class
+        print('Model', name,'risk scores ===========>', risk_scores)
+        aggregated_scores += risk_scores
+        
+    aggregated_scores /= len(models)
+
+    # # Normalizing aggregated scores
+    # min_score = aggregated_scores.min()
+    # max_score = aggregated_scores.max()
+    
+    # normalized_scores = 100 * (aggregated_scores - min_score) / (max_score - min_score)
+  
+    normalized_scores = np.clip(aggregated_scores * 100, 0, 10)
+
+    # print('Risk score =========>', normalized_scores)
+    # print("Max Score:", max_score)
+    # print("Min Score:", min_score)
+
+    results_df['Average_Risk_Score'] = aggregated_scores
+    results_df['Normalized_Risk_Score'] = normalized_scores
+    results_df['Fraud_Prediction'] = (normalized_scores >= 5).astype(int)
+
+    # Risk categories using binning
+    bins = [0, 5, 10]
+    labels = ['Low Potential Fraud', 'High Fraud Potential']
+    results_df['Risk_Category'] = pd.cut(results_df['Normalized_Risk_Score'], bins=bins, labels=labels, include_lowest=True)
+    
+    print("\n Results has been calculated and updated Successfully !!!!!")
+    print("="*100)
+    print(results_df.columns.to_list())
+    print("="*100, '\n')
+    
+    return results_df[['Transaction_Amount', 'Average_Risk_Score', 'Normalized_Risk_Score',  'True_Label', 'Fraud_Prediction','Risk_Category']]
+
+
+
+
 
 
 
