@@ -44,16 +44,20 @@ random.seed = 42
 
 load_dotenv() 
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+GROQ_API_KEY = os.getenv("OPENAI_API_KEY")
 
-if OPENAI_API_KEY and client:
-    logger.info(f"OpenAI API Key (first 8): {OPENAI_API_KEY[:8]}")
-    # logger.info(f"OpenAI client initialized: {client}")
-    logger.info(f"OpenAI Status: CONNECTED ✓")
+if GROQ_API_KEY:
+    client = OpenAI(
+        api_key=GROQ_API_KEY,
+        base_url="https://api.groq.com/openai/v1"  
+    )
+    logger.info(f"Groq API Key (first 8): {GROQ_API_KEY[:8]}")
+    logger.info(f"Groq Status: CONNECTED ✓")
 else:
-    logger.warning("OpenAI Status: DISCONNECTED ✗")
-    
+    client = None
+    logger.warning("Groq Status: DISCONNECTED ✗ - No API key found")
+     
+
 # Cache location
 CACHE_DIR = os.path.join(os.path.dirname(__file__), 'cache')
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -252,7 +256,7 @@ def prepare_and_split_data():
     """ Function to load, prepare data, and split it into training and testing sets """
     
     try:
-        # Load data from pickle
+
         data = prepare_data(file_path)
         logger.info('Data loaded', extra={'columns': data.columns.tolist()})
         
@@ -278,6 +282,61 @@ def prepare_and_split_data():
         raise
 
 
+# Function to calculate feature importance weight
+def calculate_feature_importance_weights():
+    """ Calculate feature importance weights using RandomForest, Lasso, and XGBoost models """ 
+    X_train, X_test, y_train, y_test = prepare_and_split_data()
+  
+
+    # Fit the models
+    rf = RandomForestClassifier(n_estimators=100, random_state=42)
+    rf.fit(X_train, y_train)
+
+    lasso = LassoCV(cv=5, random_state=42)
+    lasso.fit(X_train, y_train)
+
+    xgb = XGBClassifier(n_estimators=100, random_state=42)
+    xgb.fit(X_train, y_train)
+
+    # Extract feature importances
+    rf_importances = rf.feature_importances_
+    lasso_coefficients = lasso.coef_
+    xgb_importances = xgb.feature_importances_
+
+    # DF for feature importances
+    feature_names = X_train.columns
+    weights_df = pd.DataFrame({
+        'Feature': feature_names,
+        'RF_Importance': rf_importances,
+        # 'Lasso_Coefficients': np.where(lasso_coefficients != 0, lasso_coefficients, 0),
+        'XGB_Importance': xgb_importances
+    })
+    print('\n================================ Calculated Weights ===============================================')
+    print(weights_df)
+    print('==========================================================================================')
+    
+    # Setting the index to Feature
+    weights_df.set_index('Feature', inplace=True)
+
+    # Normalize the weights
+    weights_df['RF_Importance'] = weights_df['RF_Importance'] / weights_df['RF_Importance'].sum()
+    # weights_df['Lasso_Coefficients'] = weights_df['Lasso_Coefficients'] / np.abs(weights_df['Lasso_Coefficients']).sum()
+    weights_df['XGB_Importance'] = weights_df['XGB_Importance'] / weights_df['XGB_Importance'].sum()
+
+    # Combine weights (average for simplicity)
+    weights_df['Combined_Weight'] = (weights_df['RF_Importance'] +
+                                      weights_df['XGB_Importance']) / 2
+
+    # Sort the features by combined weight in descending order
+    sorted_weights = weights_df.sort_values(by='Combined_Weight', ascending=False)
+    print('\n\n================================ Sorted Weights ===========================================')
+    print(sorted_weights)
+    print('================================================================================================')
+
+    save_to_pickle(sorted_weights, IMPORTANT_FEATURES_WEIGHTS_PKL)
+    logger.info('IMPORTANT_FEATURES_WEIGHTS pickle Saved Successfully !!!!!!')
+    
+    return sorted_weights
 
 
 
