@@ -397,6 +397,100 @@ def normalize_and_categorize_risk_scores():
     return results_df[['Transaction_Amount', 'Average_Risk_Score', 'Normalized_Risk_Score',  'True_Label', 'Fraud_Prediction','Risk_Category']]
 
 
+def real_time_risk_scoring(transaction, models, weights_map):
+    """
+    Improved function to calculate risk score with better weighting.
+    """
+    
+    overall_selected_features = load_from_pickle(IMPORTANT_FEATURES_PKL)
+    
+    # Ensure transaction has all required features
+    for feature in overall_selected_features:
+        if feature not in transaction:
+            transaction[feature] = 0
+    
+    transaction_features = transaction[overall_selected_features]
+    
+    # Get predictions from all models
+    predictions = []
+    probabilities = []
+    
+    for name, model in models.items():
+        # Get probability of fraud (class 1)
+        prob = model.predict_proba(transaction_features.values.reshape(1, -1))[:, 1][0]
+        probabilities.append(prob)
+        
+        # Get binary prediction
+        pred = model.predict(transaction_features.values.reshape(1, -1))[0]
+        predictions.append(pred)
+    
+    # Calculate ensemble scores
+    avg_probability = np.mean(probabilities)
+    fraud_votes = sum(predictions)
+    total_models = len(models)
+    
+    high_risk_features = [
+        'Amount_Category_Very High',
+        'Transaction_Location_International', 
+        'Device_Type_Unknown_Device',
+        'Transaction_Type_Online',
+        'Transaction_Period_Evening'
+    ]
+    
+    feature_score = 0
+    for feature in high_risk_features:
+        if feature in transaction and transaction[feature] == 1:
+            feature_score += 2 # lets add 2 on high-risk feature
+    
+    # Normalize feature score
+    normalized_feature_score = min(feature_score / 10, 1.0)
+    
+    weighted_score = sum(
+            transaction_features[f] * weights_map.get(f, 0)
+            for f in transaction_features.index
+        )
+    
+   # Combining scores: 60% model probability, 20% voting, 20% features
+    final_score = (0.6 * avg_probability + 
+                   0.2 * (fraud_votes / total_models) + 
+                   0.2 * normalized_feature_score)
+    
+    # Scaling to 0-10 range
+    risk_score = round(final_score * 10, 2)
+    
+    # Risk categorization and recommended actions classification
+    if risk_score >= 7:
+        risk_category = "Critical Fraud Risk"
+        recommended_action = "Block transaction immediately and notify authorities."
+    elif risk_score >= 5:
+        risk_category = "High Potential Fraud"
+        recommended_action = "Flag for review and escalate to fraud investigation team."
+    elif risk_score >= 3:
+        risk_category = "Medium Risk"
+        recommended_action = "Require additional verification (2FA)."
+    else:
+        risk_category = "Low Potential Fraud"
+        recommended_action = "Approve transaction with monitoring."
+    
+    transaction_details = {
+        'Transaction_Amount': transaction.get('Transaction_Amount', 0),
+        'Risk_Score': risk_score,
+        'Model_Agreement': f"{fraud_votes}/{total_models} models flagged as fraud"
+    }
+    
+    print(f"\n{'='*60}")
+    print(f"Transaction Risk Assessment")
+    print(f"{'='*60}")
+    print(f"Risk Score: {risk_score}/10")
+    print(f"Risk Category: {risk_category}")
+    print(f"Model Probability Average: {avg_probability:.3f}")
+    print(f"Models Flagging as Fraud: {fraud_votes}/{total_models}")
+    print(f"High-Risk Features Detected: {feature_score/2}")
+    print(f"Recommended Action: {recommended_action}")
+    print(f"{'='*60}")
+    
+    return risk_score, risk_category, transaction_details, recommended_action
+
 
 
 
