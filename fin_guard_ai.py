@@ -565,6 +565,87 @@ def build_llm_prompt(
         """
 
 
+def generate_fraud_explanation(risk_score, risk_category, transaction_details):
+    """
+    Generates a human-readable explanation for ALL risk categories
+    (Low, Medium, High, Critical).
+    """
+
+    amount = transaction_details.get("Transaction_Amount", 0)
+    model_agreement = transaction_details.get(
+        "Model_Agreement", "multiple models evaluated this transaction"
+    )
+
+    # -----------------------------
+    # Build contributing signals
+    # -----------------------------
+    signals = []
+
+    if amount >= 100000:
+        signals.append("a relatively high transaction amount")
+    elif amount >= 50000:
+        signals.append("a moderately high transaction amount")
+
+    flagged_models = model_agreement.split("/")[0]
+    try:
+        flagged_models = int(flagged_models)
+    except:
+        flagged_models = 0
+
+    if flagged_models >= 4:
+        signals.append("strong agreement across multiple fraud detection models")
+    elif flagged_models >= 2:
+        signals.append("partial agreement across fraud detection models")
+    else:
+        signals.append("minimal agreement across fraud detection models")
+
+    # Default if nothing detected
+    if not signals:
+        signals.append("normal transaction behavior patterns")
+
+    signals_text = ", ".join(signals)
+
+    # -----------------------------
+    # Risk-aware explanation tone
+    # -----------------------------
+    if risk_category == "Low Potential Fraud":
+        explanation = (
+            f"This transaction was assessed as **Low Risk** with a risk score of "
+            f"{round(risk_score, 2)}. The transaction aligns closely with the "
+            f"customer’s typical behavior and historical transaction patterns. "
+            f"Only minimal risk indicators were observed, including {signals_text}. "
+            f"As a result, the transaction was approved while remaining under routine monitoring."
+        )
+
+    elif risk_category == "Medium Risk":
+        explanation = (
+            f"This transaction was classified as **Medium Risk** with a risk score of "
+            f"{round(risk_score, 2)}. While the transaction does not strongly indicate fraud, "
+            f"the system detected {signals_text}, which slightly deviates from normal patterns. "
+            f"As a precaution, additional verification is recommended to confirm transaction legitimacy."
+        )
+
+    elif risk_category == "High Potential Fraud":
+        explanation = (
+            f"This transaction was flagged as **High Potential Fraud** with a risk score of "
+            f"{round(risk_score, 2)}. The system detected {signals_text}, along with behavioral patterns "
+            f"that differ significantly from the customer’s historical activity. "
+            f"These indicators are consistent with known fraud scenarios observed across similar accounts. "
+            f"Immediate review by the fraud investigation team is recommended. "
+            f"({model_agreement})."
+        )
+
+    else:  # Critical Fraud Risk
+        explanation = (
+            f"This transaction was identified as **Critical Fraud Risk** with a risk score of "
+            f"{round(risk_score, 2)}. Strong risk signals were detected, including {signals_text}, "
+            f"and a high level of consensus among fraud detection models. "
+            f"The observed patterns closely resemble confirmed fraud cases, posing a significant threat "
+            f"of financial loss. As a result, the transaction was blocked automatically and escalated "
+            f"for immediate investigation. ({model_agreement})."
+        )
+
+    return explanation
 
 
 
