@@ -490,6 +490,11 @@ def real_time_risk_scoring(transaction, models, weights_map):
     
     return risk_score, risk_category, transaction_details, recommended_action
 
+def generate_transaction_id():
+    random_letter = random.choice(string.ascii_uppercase)  
+    date_str = datetime.now().strftime("%Y%m%d")  
+    random_digits = f"{random.randint(0, 9999):04d}" 
+    return f"T{random_letter}{date_str}{random_digits}I" 
 
 
 
