@@ -496,7 +496,43 @@ def generate_transaction_id():
     random_digits = f"{random.randint(0, 9999):04d}" 
     return f"T{random_letter}{date_str}{random_digits}I" 
 
+def generate_llm_explanation(
+    risk_score,
+    risk_category,
+    transaction_details,
+    recommended_action
+):
+    if client is None:
+        logger.info("LLM disabled: GROQ_API_KEY not set")
+        return None 
 
+    prompt = build_llm_prompt(
+        risk_score,
+        risk_category,
+        transaction_details,
+        recommended_action
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile", 
+            messages=[
+                {"role": "system", "content": "You are a financial fraud analyst explaining risk decisions to banking customers. Be clear, concise, and reassuring in a customer-friendly way. NB: Do NOT mention machine learning or models explicitly. Always use KES instead of $. "},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.5,  # Lower temperature for more consistent outputs
+            max_tokens=200 
+        )
+        
+        explanation = response.choices[0].message.content.strip()
+        logger.info(f"Groq LLM explanation generated successfully")
+        return explanation
+
+
+    except Exception as e:
+        logger.warning(f"LLM explanation failed: {e}")
+        return None
+  
 
 
 
