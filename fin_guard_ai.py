@@ -648,6 +648,39 @@ def generate_fraud_explanation(risk_score, risk_category, transaction_details):
     return explanation
 
 
+def get_final_explanation(
+    risk_score,
+    risk_category,
+    transaction_details,
+    recommended_action
+):
+    llm_explanation = generate_llm_explanation(
+        risk_score,
+        risk_category,
+        transaction_details,
+        recommended_action
+    )
+
+    if llm_explanation:
+        return llm_explanation
+
+    return generate_fraud_explanation(
+        risk_score,
+        risk_category,
+        transaction_details
+    )
+
+
+
+
+
+
+
+
+
+
+
+
 
 @app.route('/v2/api/test', methods=['GET'])
 def test():
