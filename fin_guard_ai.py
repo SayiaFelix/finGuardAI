@@ -45,11 +45,11 @@ random.seed = 42
 load_dotenv() 
 
 GROQ_API_KEY = os.getenv("OPENAI_API_KEY")
-
+base_url = os.getenv("BASE_URL")
 if GROQ_API_KEY:
     client = OpenAI(
         api_key=GROQ_API_KEY,
-        base_url="https://api.groq.com/openai/v1"  
+        base_url=base_url
     )
     logger.info(f"Groq API Key (first 8): {GROQ_API_KEY[:8]}")
     logger.info(f"Groq Status: CONNECTED ✓")
@@ -395,7 +395,6 @@ def normalize_and_categorize_risk_scores():
     
     return results_df[['Transaction_Amount', 'Average_Risk_Score', 'Normalized_Risk_Score',  'True_Label', 'Fraud_Prediction','Risk_Category']]
 
-
 def real_time_risk_scoring(transaction, models, weights_map):
     """
     Improved function to calculate risk score with better weighting.
@@ -520,7 +519,7 @@ def generate_llm_explanation(
                 {"role": "system", "content": "You are a financial fraud analyst explaining risk decisions to banking customers. Be clear, concise, and reassuring in a customer-friendly way. NB: Do NOT mention machine learning or models explicitly. Always use KES instead of $. "},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.5,  # Lower temperature for more consistent outputs
+            temperature=0.5,  ### Lower temperature for more consistent outputs
             max_tokens=200 
         )
         
@@ -681,16 +680,15 @@ def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURE
         
         if weights_df.empty:
             logger.error(f"Weights DataFrame is empty from {weights_file}")
-            # Recalculate weights if empty
             weights_df = calculate_feature_importance_weights()
         
-        # Convert to dict for easier update
+        #Converting to dict for easier update
         weights_map = weights_df['Combined_Weight'].to_dict()
         
         # Get selected features to ensure we only update relevant ones
         selected_features = load_from_pickle(IMPORTANT_FEATURES_PKL)
         
-        # Define adaptive step size (can be adjusted)
+        ###adaptive step size (can be adjusted)
         step_size = 0.02  
         
         logger.info(f"Adapting weights for feedback: {feedback}")
@@ -703,13 +701,13 @@ def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURE
                 current_weight = weights_map.get(feature, 0)
                 
                 if feedback == "confirmed_fraud":
-                    # Increase weight for features that contributed to correct fraud detection
+                    # Increase weight for features
                     new_weight = min(current_weight + step_size, 1.0)
                     weights_map[feature] = new_weight
                     updated_count += 1
                     
                 elif feedback == "false_positive":
-                    # Decrease weight for features that caused false alarm
+                    # Decrease weight for features
                     new_weight = max(current_weight - step_size, 0.0)
                     weights_map[feature] = new_weight
                     updated_count += 1
@@ -743,7 +741,7 @@ def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURE
 
 
 
-@app.route('/v2/api/test', methods=['GET'])
+@app.route('/v1/api/test', methods=['GET'])
 def test():
     return "Testing endpoint, fraud detection apis working effectively !!!!!!!!!!!!"
 
