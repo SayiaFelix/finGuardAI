@@ -599,7 +599,7 @@ def generate_fraud_explanation(risk_score, risk_category, transaction_details):
     else:
         signals.append("minimal agreement across fraud detection models")
 
-    # Default if nothing detected
+    # Default 
     if not signals:
         signals.append("normal transaction behavior patterns")
 
@@ -671,6 +671,67 @@ def get_final_explanation(
     )
 
 
+def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURES_WEIGHTS_PKL):
+    """
+    Adjusts feature weights based on user feedback.
+    """
+    try:
+        # Loaddig current weights from pickle
+        weights_df = load_from_pickle(weights_file)
+        
+        if weights_df.empty:
+            logger.error(f"Weights DataFrame is empty from {weights_file}")
+            # Recalculate weights if empty
+            weights_df = calculate_feature_importance_weights()
+        
+        # Convert to dict for easier update
+        weights_map = weights_df['Combined_Weight'].to_dict()
+        
+        # Get selected features to ensure we only update relevant ones
+        selected_features = load_from_pickle(IMPORTANT_FEATURES_PKL)
+        
+        # Define adaptive step size (can be adjusted)
+        step_size = 0.02  
+        
+        logger.info(f"Adapting weights for feedback: {feedback}")
+        logger.info(f"Features in transaction: {list(transaction_features.keys())[:5]}...")
+        
+        # Update weights for features present in this transaction
+        updated_count = 0
+        for feature in selected_features:
+            if feature in transaction_features:
+                current_weight = weights_map.get(feature, 0)
+                
+                if feedback == "confirmed_fraud":
+                    # Increase weight for features that contributed to correct fraud detection
+                    new_weight = min(current_weight + step_size, 1.0)
+                    weights_map[feature] = new_weight
+                    updated_count += 1
+                    
+                elif feedback == "false_positive":
+                    # Decrease weight for features that caused false alarm
+                    new_weight = max(current_weight - step_size, 0.0)
+                    weights_map[feature] = new_weight
+                    updated_count += 1
+        
+        # Updating  the DataFrame
+        weights_df['Combined_Weight'] = weights_df.index.map(lambda f: weights_map.get(f, weights_df.loc[f, 'Combined_Weight'] if f in weights_df.index else 0))
+        weights_df['Combined_Weight'] = weights_df['Combined_Weight'] / weights_df['Combined_Weight'].sum()
+        
+        save_to_pickle(weights_df, weights_file)
+        
+        logger.info(f"Adaptive weights updated: {updated_count} features adjusted for {feedback}")
+        logger.info(f"Updated weight range: [{weights_df['Combined_Weight'].min():.4f}, {weights_df['Combined_Weight'].max():.4f}]")
+        
+        return weights_map
+
+    except Exception as e:
+        logger.error(f"Error updating adaptive weights: {str(e)}")
+   
+        weights_df = load_from_pickle(IMPORTANT_FEATURES_WEIGHTS_PKL)
+        return weights_df['Combined_Weight'].to_dict()
+    
+    
 
 
 
