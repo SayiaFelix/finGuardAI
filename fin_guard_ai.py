@@ -729,7 +729,38 @@ def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURE
         weights_df = load_from_pickle(IMPORTANT_FEATURES_WEIGHTS_PKL)
         return weights_df['Combined_Weight'].to_dict()
     
-    
+def layer3_lite_adjustment(
+    base_risk_score,
+    transaction_amount,
+    avg_amount=50000,
+    tx_count_last_hour=1
+):
+    """
+    Layer 3 Lite:
+    Real-time risk adjustment using simple behavioral signals.
+    """
+
+    # Amount anomaly (0–1)
+    amount_risk = min(abs(transaction_amount - avg_amount) / max(avg_amount, 1), 1)
+
+    # Velocity risk (0–1)
+    velocity_risk = min(tx_count_last_hour / 5, 1)
+
+    # Combine with base score (base_risk_score is 0–10)
+    adjusted_score = (
+        0.6 * (base_risk_score / 10) +
+        0.25 * amount_risk +
+        0.15 * velocity_risk
+    )
+
+    final_score = round(min(adjusted_score * 10, 10), 2)
+
+    signals = {
+        "amount_risk": round(amount_risk, 3),
+        "velocity_risk": round(velocity_risk, 3)
+    }
+
+    return final_score, signals
 
 
 
