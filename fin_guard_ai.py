@@ -767,6 +767,43 @@ def layer3_lite_adjustment(
 #########################################################################################################################################
 
 
+@app.route('/v2/api/data_preparation', methods=['POST'])
+def prepare_data_endpoint():
+    # Ensure a file path is provided in the request
+    filename = request.json.get("filename")
+    if not filename:
+        return jsonify({"error": "filename not provided"}), 400
+
+    file_path = os.path.join(DATA_DIR, filename)
+
+    # Check if the processed data pickle already exists
+    if os.path.exists(DATA_WRANGLE_PKL):
+        try:
+            # Load the data from pickle if it exists
+            processed_data = load_from_pickle(DATA_WRANGLE_PKL)
+            return jsonify({
+                "status": "success",
+                "message": "Data loaded from pickle.",
+                "data_shape": processed_data.shape
+            })
+        except Exception as e:
+            logger.error(f"Error loading processed data from pickle: {e}")
+            return jsonify({"error": str(e)}), 500
+    else:
+        # Perform data preparation if pickle doesn't exist
+        try:
+            processed_data = prepare_data(file_path)
+            save_to_pickle(processed_data, DATA_WRANGLE_PKL)
+            return jsonify({
+                "status": "success",
+                "message": "Data processed and saved successfully !!!!!!!!!!!!!!",
+                "data_shape": processed_data.shape
+            })
+        except Exception as e:
+            logger.error(f"Error processing data: {e}")
+            return jsonify({"error": str(e)}), 500
+
+
 
 
 
