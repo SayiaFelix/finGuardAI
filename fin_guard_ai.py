@@ -766,7 +766,6 @@ def layer3_lite_adjustment(
 ######################################## -------------------- APIS End Points ------------------------###################################
 #########################################################################################################################################
 
-
 @app.route('/v1/api/data_preparation', methods=['POST'])
 def prepare_data_endpoint():
     # Ensure a file path is provided in the request
@@ -803,7 +802,64 @@ def prepare_data_endpoint():
             return jsonify({"error": str(e)}), 500
 
 
+@app.route('/v2/api/feature_selection', methods=['GET'])
+def feature_selection():
+    """ Endpoint for performing feature selection """
+    try:
+        # features pickle file exists
+        if os.path.exists(IMPORTANT_FEATURES_PKL):
+            # Load the saved features if the file exists
+            overall_selected_features = load_from_pickle(IMPORTANT_FEATURES_PKL)
+            logger.info("Data Loaded from the pickle file !!!!!!!")
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'Loaded selected features from pickle file.',
+                'selected_features': overall_selected_features
+            })
+        else:
+            logger.info("Important Feature pickle file not found. Running Feature Selection !!!!!!!!!!!!!!.")
 
+            data = load_from_pickle(DATA_WRANGLE_PKL)
+            
+            # Check if the data is in the correct format (e.g., DataFrame)
+            if isinstance(data, pd.DataFrame):
+                # Split data into features (X) and target (y)
+                X = data.drop('Class', axis=1) 
+                y = data['Class']
+                
+                # Get original feature names
+                original_columns = X.columns.tolist()
+                logger.info('Original Columns from our DataFrame !!!!!!!', original_columns)
+                
+                # Perform feature selection using RF, Lasso, and XGBoost
+                rf_selected_feat = feature_selection_rf(X, y, original_columns)
+                lasso_selected_feat = feature_selection_lasso(X, y, original_columns)
+                xgb_selected_feat = feature_selection_xgb(X, y, original_columns)
+                
+                # all selected features
+                overall_selected_features = combine_selected_features(rf_selected_feat, lasso_selected_feat, xgb_selected_feat)
+                logger.info('Overall Selected Features from our Models !!!!!!!', overall_selected_features)
+                
+                save_to_pickle(overall_selected_features, IMPORTANT_FEATURES_PKL)
+                logger.info("Overall Selected Features saved to pickle file successfully !!!!!!!!!!!!!")
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': 'Feature selection completed successfully and selected features saved !!!!!!!!!!',
+                    'selected_features': overall_selected_features
+                })
+            else:
+                return jsonify({
+                    'status': 'fail',
+                    'message': 'Loaded data is not in the correct format (expected DataFrame)'
+                }), 400
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'An error occurred: {str(e)}'
+        }), 500
+        
 
 
 
