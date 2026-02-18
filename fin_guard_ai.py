@@ -822,7 +822,7 @@ def feature_selection():
 
             data = load_from_pickle(DATA_WRANGLE_PKL)
             
-            # Check if the data is in the correct format (e.g., DataFrame)
+            # Perform feature selection only if data is loaded successfully and is a DataFrame
             if isinstance(data, pd.DataFrame):
                 # Split data into features (X) and target (y)
                 X = data.drop('Class', axis=1) 
@@ -859,7 +859,23 @@ def feature_selection():
             'status': 'error',
             'message': f'An error occurred: {str(e)}'
         }), 500
+   
+
+@app.route('/v2/api/load_feature_importance', methods=['GET'])
+def load_model_endpoint():
+    """ Endpoint for loading the model """
+    try:
         
+        selected_features = load_from_pickle('important_features.pkl')
+        
+        return jsonify({
+            "status": "success",
+            "message": 'The selected features loaded successfully !!!!!!!', 
+            "selected_features": selected_features
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+     
 
 
 
