@@ -877,6 +877,36 @@ def load_model_endpoint():
         return jsonify({"error": str(e)}), 500
      
 
+@app.route('/v2/api/feature_importance_weight', methods=['GET'])
+def feature_importance_weight_endpoint():
+    """ Endpoint for loading or calculating feature importance weights """
+    try:
+        # Check if the feature importance pickle file exists
+        if os.path.exists(IMPORTANT_FEATURES_WEIGHTS_PKL):
+            # Load the saved feature importance weights from pickle file
+            feature_importance_df = load_from_pickle(IMPORTANT_FEATURES_WEIGHTS_PKL)
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'Loaded feature importance weights from pickle file.',
+                'feature_importance': feature_importance_df.to_dict(orient='index')
+            })
+        
+        # If the pickle file doesn't exist, calculate the feature importance weights
+        weights_df = calculate_feature_importance_weights()
+
+        # Return the calculated feature importance weights
+        return jsonify({
+            'status': 'success',
+            'message': 'Feature importance calculated and saved successfully !!!!!!!!!!!!!!!!!!!',
+            'feature_importance': weights_df.to_dict(orient='index')
+        })
+    
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'An error occurred: {str(e)}'
+        }), 500
 
 
 
