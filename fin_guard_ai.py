@@ -881,9 +881,9 @@ def load_model_endpoint():
 def feature_importance_weight_endpoint():
     """ Endpoint for loading or calculating feature importance weights """
     try:
-        # Check if the feature importance pickle file exists
+        # Checking if the feature importance pickle file exists
         if os.path.exists(IMPORTANT_FEATURES_WEIGHTS_PKL):
-            # Load the saved feature importance weights from pickle file
+            # Load the saved feature importance weights 
             feature_importance_df = load_from_pickle(IMPORTANT_FEATURES_WEIGHTS_PKL)
             
             return jsonify({
@@ -892,10 +892,8 @@ def feature_importance_weight_endpoint():
                 'feature_importance': feature_importance_df.to_dict(orient='index')
             })
         
-        # If the pickle file doesn't exist, calculate the feature importance weights
         weights_df = calculate_feature_importance_weights()
 
-        # Return the calculated feature importance weights
         return jsonify({
             'status': 'success',
             'message': 'Feature importance calculated and saved successfully !!!!!!!!!!!!!!!!!!!',
