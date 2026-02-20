@@ -955,6 +955,147 @@ def normalized_scores_endpoint():
         }), 500
 
 
+@app.route('/v2/api/real_time_risk_score', methods=['POST'])
+def real_time_risk_score_endpoint():
+    """Endpoint for real-time calculation and storage of risk scores with JSON feedback integration."""
+    try:
+    
+        data = request.json
+        transaction_id = data.get("transaction_id") or generate_transaction_id()
+        transaction_data = pd.Series(data, name=transaction_id)
+        timestamp = datetime.now().isoformat()
+
+        models = load_model_from_JobLib(RISK_MODELS_JOBLIB)
+        weights_pickle = load_from_pickle(IMPORTANT_FEATURES_WEIGHTS_PKL)
+        weights_map = weights_pickle['Combined_Weight']
+
+        stored_scores = load_or_initialize_pickle(REAL_TIME_RISK_SCORES_PKL, {})
+        stored_feedback = load_feedback() 
+
+        existing_feedback = None
+        for fb in stored_feedback:
+            fb_signals = fb.get("signals", {})
+            # Use 5% tolerance for transaction amount similarity
+            if abs(transaction_data.get("Transaction_Amount", 0) - fb_signals.get("Transaction_Amount", 0)) / max(fb_signals.get("Transaction_Amount", 1), 1) < 0.05:
+                existing_feedback = fb
+                break
+
+        # ---baseline risk score ---
+        baseline_score, baseline_category, baseline_details, baseline_action = real_time_risk_scoring(
+            transaction_data, models, weights_map
+        )
+
+        avg_amount = 50000  # for demo default
+        tx_count_last_hour = data.get("tx_count_last_hour", 1)
+
+        adjusted_score, layer3_signals = layer3_lite_adjustment(
+            base_risk_score=baseline_score,
+            transaction_amount=transaction_data.get("Transaction_Amount", 0),
+            avg_amount=avg_amount,
+            tx_count_last_hour=tx_count_last_hour
+        )
+        
+        ### Override risk score ONLY if Layer 3 increases risk meaningfully
+        if adjusted_score > baseline_score:
+            risk_score = adjusted_score
+            risk_category = (
+                "Critical Fraud Risk" if risk_score >= 7 else
+                "High Potential Fraud" if risk_score >= 5 else
+                "Medium Risk" if risk_score >= 3 else
+                "Low Potential Fraud"
+            )
+        else:
+            risk_score = baseline_score
+            risk_category = baseline_category
+            
+        feedback_effect = None
+
+        if existing_feedback:
+            print(f"Similar transaction found in feedback (ID: {existing_feedback['transaction_id']}). Adapting weights...")
+            adapted_weights = adapt_weights(transaction_data, existing_feedback['outcome'], IMPORTANT_FEATURES_WEIGHTS_PKL)
+
+            # Recalculate risk with adapted weights
+            risk_score, risk_category, transaction_details, recommended_action = real_time_risk_scoring(
+                transaction_data, models, adapted_weights
+            )
+
+            # Capture feedback effect
+            if abs(risk_score - baseline_score) > 0.01:  
+                feedback_effect = {
+                    "original_score": baseline_score,
+                    "adjusted_score": risk_score,
+                    "original_category": baseline_category,
+                    "adjusted_category": risk_category
+                }
+        else:
+            # No feedback → use baseline
+            risk_score, risk_category, transaction_details, recommended_action = baseline_score, baseline_category, baseline_details, baseline_action
+
+        transaction_details["real_time_signals"] = layer3_signals
+        
+        # 1. Rule-based explanation
+        rule_based_explanation = generate_fraud_explanation(
+            risk_score=risk_score,
+            risk_category=risk_category,
+            transaction_details=transaction_details
+        )
+        
+        # 2. LLM explanation (if available)
+        llm_explanation = generate_llm_explanation(
+            risk_score=risk_score,
+            risk_category=risk_category,
+            transaction_details=transaction_details,
+            recommended_action=recommended_action
+        )
+        
+        # 3. Combined/Final explanation 
+        final_explanation = llm_explanation if llm_explanation else rule_based_explanation
+
+        stored_scores[transaction_id] = {
+            'timestamp': timestamp,
+            'risk_score': risk_score,
+            'risk_category': risk_category,
+            'transaction_details': transaction_details,
+            'recommended_action': recommended_action,
+            'explanations': {
+                'rule_based': rule_based_explanation,
+                'llm': llm_explanation,
+                'final': final_explanation
+            },
+            'llm_status': 'connected' if client is not None else 'disconnected',
+            'feedback_used': existing_feedback['transaction_id'] if existing_feedback else None,
+            'feedback_effect': feedback_effect
+        }
+        save_to_pickle(stored_scores, REAL_TIME_RISK_SCORES_PKL)
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Risk score was calculated successfully !!!!!!!!!!!!!!!!!!!',
+            'result': {
+                'transaction_id': transaction_id,
+                'timestamp': timestamp,
+                'risk_score': risk_score,
+                'risk_category': risk_category,
+                'transaction_details': transaction_details,
+                'recommended_action': recommended_action,
+                'explanations': {
+                    'rule_based': rule_based_explanation,
+                    'llm': llm_explanation if llm_explanation else 'LLM not available - check OpenAI API key',
+                    'final': final_explanation
+                },
+                'llm_status': 'connected' if client is not None else 'disconnected',
+                'feedback_used': existing_feedback['transaction_id'] if existing_feedback else None,
+                'feedback_effect': feedback_effect
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"Error in real-time risk scoring: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'An error occurred: {str(e)}'
+        }), 500
+        
 
 
 @app.route('/v1/api/test', methods=['GET'])
