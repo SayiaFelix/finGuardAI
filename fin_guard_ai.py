@@ -906,7 +906,55 @@ def feature_importance_weight_endpoint():
             'message': f'An error occurred: {str(e)}'
         }), 500
 
+@app.route('/v2/api/batch_risk_scores', methods=['POST'])
+def normalized_scores_endpoint():
+    """Endpoint for loading or calculating normalized scores sample"""
+    try:
+        # Parse JSON request body
+        data = request.get_json()
+        page = data.get('page', 1)  # Default to page 1
+        size = data.get('size', 10)  # Default to 10 items per page
 
+        # Validate that page and size are positive integers
+        if not isinstance(page, int) or not isinstance(size, int) or page < 1 or size < 1:
+            return jsonify({
+                'status': 'error',
+                'message': 'Page and size must be positive integers.'
+            }), 400
+
+        # If the normalized scores pickle file exists
+        if os.path.exists(NORMALIZED_RISK_SCORES_PKL):
+            # Load the saved normalized scores from pickle file
+            normalized_scores_df = load_from_pickle(NORMALIZED_RISK_SCORES_PKL)
+        else:
+            # If the pickle file doesn't exist, calculate the normalized scores
+            normalized_scores_df = normalize_and_categorize_risk_scores()
+            save_to_pickle(normalized_scores_df, NORMALIZED_RISK_SCORES_PKL)
+
+        # Convert DataFrame to dictionary
+        normalized_scores_dict = normalized_scores_df.to_dict(orient='index')
+
+        # Implement pagination
+        total_records = len(normalized_scores_dict)
+        start_idx = (page - 1) * size
+        end_idx = start_idx + size
+        paginated_data = dict(list(normalized_scores_dict.items())[start_idx:end_idx])
+
+        # Return paginated response
+        return jsonify({
+            'status': 'success',
+            'message': 'Normalized scores retrieved successfully.',
+            'page': page,
+            'size': size,
+            'total_records': total_records,
+            'normalized_scores': paginated_data
+        })
+
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'An error occurred: {str(e)}'
+        }), 500
 
 
 
