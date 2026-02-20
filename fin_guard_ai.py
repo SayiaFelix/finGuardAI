@@ -910,10 +910,10 @@ def feature_importance_weight_endpoint():
 def normalized_scores_endpoint():
     """Endpoint for loading or calculating normalized scores sample"""
     try:
-        # Parse JSON request body
+    
         data = request.get_json()
-        page = data.get('page', 1)  # Default to page 1
-        size = data.get('size', 10)  # Default to 10 items per page
+        page = data.get('page', 1)  
+        size = data.get('size', 10) 
 
         # Validate that page and size are positive integers
         if not isinstance(page, int) or not isinstance(size, int) or page < 1 or size < 1:
@@ -927,20 +927,18 @@ def normalized_scores_endpoint():
             # Load the saved normalized scores from pickle file
             normalized_scores_df = load_from_pickle(NORMALIZED_RISK_SCORES_PKL)
         else:
-            # If the pickle file doesn't exist, calculate the normalized scores
+            # If the pickle file doesn't exist
             normalized_scores_df = normalize_and_categorize_risk_scores()
             save_to_pickle(normalized_scores_df, NORMALIZED_RISK_SCORES_PKL)
 
         # Convert DataFrame to dictionary
         normalized_scores_dict = normalized_scores_df.to_dict(orient='index')
 
-        # Implement pagination
         total_records = len(normalized_scores_dict)
         start_idx = (page - 1) * size
         end_idx = start_idx + size
         paginated_data = dict(list(normalized_scores_dict.items())[start_idx:end_idx])
 
-        # Return paginated response
         return jsonify({
             'status': 'success',
             'message': 'Normalized scores retrieved successfully.',
