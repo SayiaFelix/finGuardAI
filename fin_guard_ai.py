@@ -1095,7 +1095,165 @@ def real_time_risk_score_endpoint():
             'status': 'error',
             'message': f'An error occurred: {str(e)}'
         }), 500
+
+  
+@app.route('/v2/api/transactions', methods=['POST'])
+def transactions_endpoint():
+    """
+    Unified endpoint for transactions.
+    """
+    try:
+    
+        data = request.get_json() or {}
+        transaction_id = data.get('transaction_id')
         
+        if transaction_id:
+       
+            transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+
+            if not transactions:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'No transactions data available !!!!!'
+                }), 500
+
+            ## Checking if the transaction exists
+            transaction = transactions.get(transaction_id)
+
+            if not transaction:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Transaction with ID {transaction_id} not found !!!!!!!!!!!!!'
+                }), 404
+
+            def make_json_serializable(data):
+                """Recursively convert data to JSON-serializable types."""
+                if isinstance(data, dict):
+                    return {key: make_json_serializable(value) for key, value in data.items()}
+                elif isinstance(data, list):
+                    return [make_json_serializable(item) for item in data]
+                elif isinstance(data, (np.integer, np.floating)):
+                    return float(data) if isinstance(data, np.floating) else int(data)
+                elif isinstance(data, (int, float, str)):
+                    return data
+                elif isinstance(data, bool):
+                    return bool(data) 
+                elif data is None:
+                    return None
+                else:
+                    return str(data)  # Convert any other type to string
+            
+            # Clean the transaction data
+            cleaned_transaction = make_json_serializable(transaction)
+            
+            # Extract cleaned details
+            risk_category = cleaned_transaction.get('risk_category', 'Unknown')
+            risk_score = float(cleaned_transaction.get('risk_score', 0))
+            timestamp = cleaned_transaction.get('timestamp', '')
+            transaction_details = cleaned_transaction.get('transaction_details', {})
+            recommended_action = cleaned_transaction.get('recommended_action', '')
+            
+            # Determine risk level
+            if risk_category in ['Critical Fraud Risk', 'High Potential Fraud']:
+                risk_level = 'HIGH_RISK'
+                status_message = f'Transaction ID {transaction_id} is flagged as {risk_category} !!!!!!!!!'
+            elif risk_category == 'Medium Risk':
+                risk_level = 'MEDIUM_RISK'
+                status_message = f'Transaction ID {transaction_id} has medium risk !!!!!!!!!!!!!'
+            else:
+                risk_level = 'LOW_RISK'
+                status_message = f'Transaction ID {transaction_id} has low risk !!!!!!!!!!!!'
+
+            # Prepare response with safe data
+            response_data = {
+                'status': 'success',
+                'message': status_message,
+                'transaction_id': transaction_id,
+                'timestamp': str(timestamp),
+                'risk_assessment': {
+                    'risk_score': float(risk_score),
+                    'risk_category': str(risk_category),
+                    'risk_alert_level': str(risk_level),
+                    'threshold': 5.0,
+                    'is_high_risk': bool(risk_score >= 5.0)
+                },
+                'transaction_details': transaction_details,
+                'recommended_action': str(recommended_action),
+            }
+
+            return jsonify(response_data), 200
+            
+        else:
+          
+            page = data.get('page', 1)
+            size = data.get('size', 10)
+            
+            # Validate pagination parameters
+            if not isinstance(page, int) or page < 1:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Page must be an integer greater than 0.'
+                }), 400
+            
+            if not isinstance(size, int) or size < 1 or size > 100:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Size must be an integer between 1 and 100.'
+                }), 400
+
+            # Load transactions
+            transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+
+            if not transactions:
+                return jsonify({
+                    'status': 'success',
+                    'message': 'No transactions found.',
+                    'transactions': [],
+                    'total': 0
+                }), 200
+
+            # Convert to list and sort
+            tx_list = []
+            for tx_id, tx_data in transactions.items():
+                tx_list.append({
+                    'transaction_id': tx_id,
+                    'timestamp': tx_data.get('timestamp', ''),
+                    'risk_score': tx_data.get('risk_score', 0),
+                    'risk_category': tx_data.get('risk_category', ''),
+                    'transaction_details': tx_data.get('transaction_details', {}),
+                    'recommended_action': tx_data.get('recommended_action', '')
+                })
+            
+            # Sort by most recent
+            tx_list.sort(key=lambda x: x['timestamp'], reverse=True)
+            total = len(tx_list)
+            start_idx = (page - 1) * size
+            end_idx = start_idx + size
+            
+            paginated = tx_list[start_idx:end_idx]
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'Loaded {len(paginated)} of {total} transactions !!!!!!!!!!!!',
+                'transactions': paginated,
+                'pagination': {
+                    'page': page,
+                    'size': size,
+                    'total': total,
+                    'has_more': end_idx < total
+                }
+            }), 200
+
+    except Exception as e:
+        logger.error(f"Error in transactions endpoint: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Internal server error: {str(e)}'
+        }), 500      
+
+
+
+
 
 
 @app.route('/v1/api/test', methods=['GET'])
