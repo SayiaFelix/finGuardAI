@@ -1251,6 +1251,116 @@ def transactions_endpoint():
             'message': f'Internal server error: {str(e)}'
         }), 500      
 
+@app.route('/v2/api/fraud_history', methods=['POST'])
+def get_fraud_history():
+    """
+    Endpoint to get all transactions flagged as High Potential Fraud OR Critical Fraud Risk.
+    """
+    try:
+        data = request.get_json()
+        
+        page = data.get('page', 1) if data else 1
+        size = data.get('size', 10) if data else 10
+        
+        # Validate pagination parameters
+        if not isinstance(page, int) or page < 1:
+            return jsonify({
+                'status': 'error',
+                'message': 'Page must be an integer greater than 0.'
+            }), 400
+        
+        if not isinstance(size, int) or size < 1 or size > 100:
+            return jsonify({
+                'status': 'error',
+                'message': 'Size must be an integer between 1 and 100.'
+            }), 400
+
+        # Load transactions from pickle file
+        transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+
+        if not transactions:  # Empty dict or None
+            return jsonify({
+                'status': 'success',
+                'message': 'No transactions found.',
+                'fraud_transactions': [],
+                'pagination': {
+                    'page': page,
+                    'size': size,
+                    'total': 0,
+                    'total_pages': 0,
+                    'has_next': False,
+                    'has_prev': False
+                }
+            }), 200
+
+        # Filter transactions that are flagged as High Potential Fraud OR Critical Fraud Risk
+        fraud_transactions = {}
+        for tx_id, tx_data in transactions.items():
+            risk_category = tx_data.get('risk_category', '')
+            if risk_category in ['High Potential Fraud', 'Critical Fraud Risk']:
+                fraud_transactions[tx_id] = tx_data
+
+        if not fraud_transactions:
+            return jsonify({
+                'status': 'success',
+                'message': 'No fraud transactions found.',
+                'fraud_transactions': [],
+                'pagination': {
+                    'page': page,
+                    'size': size,
+                    'total': 0,
+                    'total_pages': 0,
+                    'has_next': False,
+                    'has_prev': False
+                }
+            }), 200
+
+        # Convert to list for sorting
+        fraud_list = []
+        for tx_id, tx_data in fraud_transactions.items():
+            fraud_list.append({
+                'transaction_id': tx_id,
+                'timestamp': tx_data.get('timestamp', ''),
+                'risk_score': tx_data.get('risk_score', 0),
+                'risk_category': tx_data.get('risk_category', ''),
+                'transaction_details': tx_data.get('transaction_details', {}),
+                'recommended_action': tx_data.get('recommended_action', '')
+            })
+
+        # Sort by risk score (highest first), then by timestamp
+        fraud_list.sort(key=lambda x: (-x['risk_score'], x['timestamp']), reverse=True)
+
+        # Calculate pagination
+        total = len(fraud_list)
+        total_pages = max(1, (total + size - 1) // size)  
+        
+        if page > total_pages:
+            page = total_pages
+        
+        start_idx = (page - 1) * size
+        end_idx = start_idx + size
+        paginated_results = fraud_list[start_idx:end_idx]
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Found {total} fraud transactions !!!!!!!!!!!',
+            'fraud_transactions': paginated_results,
+            'pagination': {
+                'page': page,
+                'size': size,
+                'total': total,
+                'total_pages': total_pages,
+                'has_next': page < total_pages,
+                'has_prev': page > 1
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error in fraud-history endpoint: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Internal server error: {str(e)}'
+        }), 500        
 
 
 
