@@ -1278,7 +1278,7 @@ def get_fraud_history():
         # Load transactions from pickle file
         transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
 
-        if not transactions:  # Empty dict or None
+        if not transactions:  
             return jsonify({
                 'status': 'success',
                 'message': 'No transactions found.',
@@ -1362,6 +1362,41 @@ def get_fraud_history():
             'message': f'Internal server error: {str(e)}'
         }), 500        
 
+@app.route("/v2/api/fraud_feedback", methods=["POST"])
+def fraud_feedback():
+    """
+    Endpoint to handle fraud feedback from users or analysts.
+    """
+    try:
+        data = request.json
+        transaction_id = data.get("transaction_id")
+        feedback = data.get("feedback")  # "false_positive" or "confirmed_fraud"
+        signals = data.get("signals")    # Optional: feature contributions dict
+
+        if not all([transaction_id, feedback]):
+            return jsonify({"error": "transaction_id and feedback are required"}), 400
+
+        # Load the stored real-time transactions
+        stored_transactions = load_or_initialize_pickle(REAL_TIME_RISK_SCORES_PKL, {})
+
+        if transaction_id not in stored_transactions:
+            return jsonify({
+                "error": f"Transaction with ID {transaction_id} not found in records."
+            }), 404
+
+        if signals is None:
+            transaction_details = stored_transactions[transaction_id].get("transaction_details", {})
+            signals = transaction_details  # use all features as signals
+
+        # Store the feedback
+        store_feedback(transaction_id, feedback, signals)
+        adapt_weights(signals, feedback)
+
+        return jsonify({"message": f"Feedback for transaction {transaction_id} processed successfully !!!!!!"}), 200
+
+    except Exception as e:
+        logger.error(f"Error in fraud feedback endpoint: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 
 
