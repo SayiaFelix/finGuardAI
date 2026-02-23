@@ -1371,12 +1371,11 @@ def fraud_feedback():
         data = request.json
         transaction_id = data.get("transaction_id")
         feedback = data.get("feedback")  # "false_positive" or "confirmed_fraud"
-        signals = data.get("signals")    # Optional: feature contributions dict
+        signals = data.get("signals")  
 
         if not all([transaction_id, feedback]):
             return jsonify({"error": "transaction_id and feedback are required"}), 400
 
-        # Load the stored real-time transactions
         stored_transactions = load_or_initialize_pickle(REAL_TIME_RISK_SCORES_PKL, {})
 
         if transaction_id not in stored_transactions:
@@ -1386,9 +1385,8 @@ def fraud_feedback():
 
         if signals is None:
             transaction_details = stored_transactions[transaction_id].get("transaction_details", {})
-            signals = transaction_details  # use all features as signals
+            signals = transaction_details 
 
-        # Store the feedback
         store_feedback(transaction_id, feedback, signals)
         adapt_weights(signals, feedback)
 
