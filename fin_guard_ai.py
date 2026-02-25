@@ -777,7 +777,7 @@ def prepare_data_endpoint():
 
     if os.path.exists(DATA_WRANGLE_PKL):
         try:
-            # Loadding the data from pickle if it exists
+           
             processed_data = load_from_pickle(DATA_WRANGLE_PKL)
             return jsonify({
                 "status": "success",
@@ -788,7 +788,6 @@ def prepare_data_endpoint():
             logger.error(f"Error loading processed data from pickle: {e}")
             return jsonify({"error": str(e)}), 500
     else:
-        # Perform data preparation if pickle doesn't exist
         try:
             processed_data = prepare_data(file_path)
             save_to_pickle(processed_data, DATA_WRANGLE_PKL)
@@ -808,7 +807,6 @@ def feature_selection():
     try:
         # features pickle file exists
         if os.path.exists(IMPORTANT_FEATURES_PKL):
-            # Load the saved features if the file exists
             overall_selected_features = load_from_pickle(IMPORTANT_FEATURES_PKL)
             logger.info("Data Loaded from the pickle file !!!!!!!")
             
@@ -822,7 +820,6 @@ def feature_selection():
 
             data = load_from_pickle(DATA_WRANGLE_PKL)
             
-            # Perform feature selection only if data is loaded successfully and is a DataFrame
             if isinstance(data, pd.DataFrame):
                 # Split data into features (X) and target (y)
                 X = data.drop('Class', axis=1) 
@@ -832,7 +829,7 @@ def feature_selection():
                 original_columns = X.columns.tolist()
                 logger.info('Original Columns from our DataFrame !!!!!!!', original_columns)
                 
-                # Perform feature selection using RF, Lasso, and XGBoost
+                # feature selection using RF, Lasso, and XGBoost
                 rf_selected_feat = feature_selection_rf(X, y, original_columns)
                 lasso_selected_feat = feature_selection_lasso(X, y, original_columns)
                 xgb_selected_feat = feature_selection_xgb(X, y, original_columns)
@@ -915,23 +912,19 @@ def normalized_scores_endpoint():
         page = data.get('page', 1)  
         size = data.get('size', 10) 
 
-        # Validate that page and size are positive integers
         if not isinstance(page, int) or not isinstance(size, int) or page < 1 or size < 1:
             return jsonify({
                 'status': 'error',
                 'message': 'Page and size must be positive integers.'
             }), 400
 
-        # If the normalized scores pickle file exists
         if os.path.exists(NORMALIZED_RISK_SCORES_PKL):
-            # Load the saved normalized scores from pickle file
             normalized_scores_df = load_from_pickle(NORMALIZED_RISK_SCORES_PKL)
         else:
-            # If the pickle file doesn't exist
+   
             normalized_scores_df = normalize_and_categorize_risk_scores()
             save_to_pickle(normalized_scores_df, NORMALIZED_RISK_SCORES_PKL)
 
-        # Convert DataFrame to dictionary
         normalized_scores_dict = normalized_scores_df.to_dict(orient='index')
 
         total_records = len(normalized_scores_dict)
@@ -1275,7 +1268,6 @@ def get_fraud_history():
                 'message': 'Size must be an integer between 1 and 100.'
             }), 400
 
-        # Load transactions from pickle file
         transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
 
         if not transactions:  
@@ -1293,7 +1285,6 @@ def get_fraud_history():
                 }
             }), 200
 
-        # Filter transactions that are flagged as High Potential Fraud OR Critical Fraud Risk
         fraud_transactions = {}
         for tx_id, tx_data in transactions.items():
             risk_category = tx_data.get('risk_category', '')
@@ -1327,10 +1318,9 @@ def get_fraud_history():
                 'recommended_action': tx_data.get('recommended_action', '')
             })
 
-        # Sort by risk score (highest first), then by timestamp
         fraud_list.sort(key=lambda x: (-x['risk_score'], x['timestamp']), reverse=True)
 
-        # Calculate pagination
+        #pagination
         total = len(fraud_list)
         total_pages = max(1, (total + size - 1) // size)  
         
@@ -1370,7 +1360,7 @@ def fraud_feedback():
     try:
         data = request.json
         transaction_id = data.get("transaction_id")
-        feedback = data.get("feedback")  # "false_positive" or "confirmed_fraud"
+        feedback = data.get("feedback") 
         signals = data.get("signals")  
 
         if not all([transaction_id, feedback]):
@@ -1395,8 +1385,6 @@ def fraud_feedback():
     except Exception as e:
         logger.error(f"Error in fraud feedback endpoint: {str(e)}")
         return jsonify({"error": str(e)}), 500
-
-
 
 
 @app.route('/v1/api/test', methods=['GET'])
