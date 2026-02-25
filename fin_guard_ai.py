@@ -804,10 +804,9 @@ def prepare_data_endpoint():
 
     file_path = os.path.join(DATA_DIR, filename)
 
-    # Check if the processed data pickle already exists
     if os.path.exists(DATA_WRANGLE_PKL):
         try:
-            # Load the data from pickle if it exists
+       
             processed_data = load_from_pickle(DATA_WRANGLE_PKL)
             return jsonify({
                 "status": "success",
@@ -818,7 +817,7 @@ def prepare_data_endpoint():
             logger.error(f"Error loading processed data from pickle: {e}")
             return jsonify({"error": str(e)}), 500
     else:
-        # Perform data preparation if pickle doesn't exist
+   
         try:
             processed_data = prepare_data(file_path)
             save_to_pickle(processed_data, DATA_WRANGLE_PKL)
@@ -837,7 +836,7 @@ def feature_selection():
     try:
         # features pickle file exists
         if os.path.exists(IMPORTANT_FEATURES_PKL):
-            # Load the saved features if the file exists
+           
             overall_selected_features = load_from_pickle(IMPORTANT_FEATURES_PKL)
             logger.info("Data Loaded from the pickle file !!!!!!!")
             
@@ -848,16 +847,14 @@ def feature_selection():
             })
         else:
             logger.info("Important Feature pickle file not found. Running Feature Selection !!!!!!!!!!!!!!.")
-            # Load data from the pickle file
             data = load_from_pickle(DATA_WRANGLE_PKL)
-            
-            # Check if the data is in the correct format (e.g., DataFrame)
+
             if isinstance(data, pd.DataFrame):
-                # Split data into features (X) and target (y)
+               
                 X = data.drop('Class', axis=1) 
                 y = data['Class']
                 
-                # Get original feature names
+                ### Get original feature names
                 original_columns = X.columns.tolist()
                 logger.info('Original Columns from our DataFrame !!!!!!!', original_columns)
                 
@@ -870,8 +867,7 @@ def feature_selection():
                 overall_selected_features = combine_selected_features(rf_selected_feat, lasso_selected_feat, xgb_selected_feat)
                 logger.info('Overall Selected Features from our Models !!!!!!!', overall_selected_features)
                 
-                
-                # Save the final model and selected features
+            
                 save_to_pickle(overall_selected_features, IMPORTANT_FEATURES_PKL)
                 logger.info("Overall Selected Features saved to pickle file successfully !!!!!!!!!!!!!")
                 
@@ -895,7 +891,7 @@ def feature_selection():
 def load_model_endpoint():
     """ Endpoint for loading the model """
     try:
-        # model = load_from_pickle('model.pkl')
+     
         selected_features = load_from_pickle('important_features.pkl')
         
         return jsonify({
@@ -910,9 +906,8 @@ def load_model_endpoint():
 def feature_importance_weight_endpoint():
     """ Endpoint for loading or calculating feature importance weights """
     try:
-        # Check if the feature importance pickle file exists
         if os.path.exists(IMPORTANT_FEATURES_WEIGHTS_PKL):
-            # Load the saved feature importance weights from pickle file
+       
             feature_importance_df = load_from_pickle(IMPORTANT_FEATURES_WEIGHTS_PKL)
             
             return jsonify({
@@ -921,10 +916,8 @@ def feature_importance_weight_endpoint():
                 'feature_importance': feature_importance_df.to_dict(orient='index')
             })
         
-        # If the pickle file doesn't exist, calculate the feature importance weights
         weights_df = calculate_feature_importance_weights()
 
-        # Return the calculated feature importance weights
         return jsonify({
             'status': 'success',
             'message': 'Feature importance calculated and saved successfully !!!!!!!!!!!!!!!!!!!',
@@ -943,8 +936,8 @@ def normalized_scores_endpoint():
     try:
         # Parse JSON request body
         data = request.get_json()
-        page = data.get('page', 1)  # Default to page 1
-        size = data.get('size', 10)  # Default to 10 items per page
+        page = data.get('page', 1) 
+        size = data.get('size', 10) 
 
         # Validate that page and size are positive integers
         if not isinstance(page, int) or not isinstance(size, int) or page < 1 or size < 1:
@@ -953,25 +946,20 @@ def normalized_scores_endpoint():
                 'message': 'Page and size must be positive integers.'
             }), 400
 
-        # If the normalized scores pickle file exists
         if os.path.exists(NORMALIZED_RISK_SCORES_PKL):
-            # Load the saved normalized scores from pickle file
             normalized_scores_df = load_from_pickle(NORMALIZED_RISK_SCORES_PKL)
         else:
-            # If the pickle file doesn't exist, calculate the normalized scores
+            ### If the pickle file doesn't exist, calculate the normalized scores
             normalized_scores_df = normalize_and_categorize_risk_scores()
             save_to_pickle(normalized_scores_df, NORMALIZED_RISK_SCORES_PKL)
 
-        # Convert DataFrame to dictionary
         normalized_scores_dict = normalized_scores_df.to_dict(orient='index')
 
-        # Implement pagination
         total_records = len(normalized_scores_dict)
         start_idx = (page - 1) * size
         end_idx = start_idx + size
         paginated_data = dict(list(normalized_scores_dict.items())[start_idx:end_idx])
 
-        # Return paginated response
         return jsonify({
             'status': 'success',
             'message': 'Normalized scores retrieved successfully.',
@@ -991,13 +979,12 @@ def normalized_scores_endpoint():
 def real_time_risk_score_endpoint():
     """Endpoint for real-time calculation and storage of risk scores with JSON feedback integration."""
     try:
-        # --- Input data ---
+   
         data = request.json
         transaction_id = data.get("transaction_id") or generate_transaction_id()
         transaction_data = pd.Series(data, name=transaction_id)
         timestamp = datetime.now().isoformat()
 
-        # --- Load models, weights, stored scores ---
         models = load_model_from_JobLib(RISK_MODELS_JOBLIB)
         weights_pickle = load_from_pickle(IMPORTANT_FEATURES_WEIGHTS_PKL)
         weights_map = weights_pickle['Combined_Weight']
@@ -1005,7 +992,6 @@ def real_time_risk_score_endpoint():
         stored_scores = load_or_initialize_pickle(REAL_TIME_RISK_SCORES_PKL, {})
         stored_feedback = load_feedback()  # JSON feedback
 
-        # --- Check for existing similar feedback ---
         existing_feedback = None
         for fb in stored_feedback:
             fb_signals = fb.get("signals", {})
@@ -1014,15 +1000,11 @@ def real_time_risk_score_endpoint():
                 existing_feedback = fb
                 break
 
-        # ---baseline risk score ---
         baseline_score, baseline_category, baseline_details, baseline_action = real_time_risk_scoring(
             transaction_data, models, weights_map
         )
 
-        # -----------------------------
-        # Layer 3 Lite Adjustment
-        # -----------------------------
-        avg_amount = 50000  # demo default
+        avg_amount = 50000  # for demo default
         tx_count_last_hour = data.get("tx_count_last_hour", 1)
 
         adjusted_score, layer3_signals = layer3_lite_adjustment(
@@ -1032,7 +1014,7 @@ def real_time_risk_score_endpoint():
             tx_count_last_hour=tx_count_last_hour
         )
         
-        # Override risk score ONLY if Layer 3 increases risk meaningfully
+        ## Override risk score ONLY if Layer 3 increases risk meaningfully
         if adjusted_score > baseline_score:
             risk_score = adjusted_score
             risk_category = (
@@ -1052,13 +1034,13 @@ def real_time_risk_score_endpoint():
             print(f"Similar transaction found in feedback (ID: {existing_feedback['transaction_id']}). Adapting weights...")
             adapted_weights = adapt_weights(transaction_data, existing_feedback['outcome'], IMPORTANT_FEATURES_WEIGHTS_PKL)
 
-            # Recalculate risk with adapted weights
+            ### Recalculating risk with adapted weights
             risk_score, risk_category, transaction_details, recommended_action = real_time_risk_scoring(
                 transaction_data, models, adapted_weights
             )
 
             # Capture feedback effect
-            if abs(risk_score - baseline_score) > 0.01:  # only if meaningful change
+            if abs(risk_score - baseline_score) > 0.01:  
                 feedback_effect = {
                     "original_score": baseline_score,
                     "adjusted_score": risk_score,
@@ -1066,19 +1048,17 @@ def real_time_risk_score_endpoint():
                     "adjusted_category": risk_category
                 }
         else:
-            # No feedback → use baseline
             risk_score, risk_category, transaction_details, recommended_action = baseline_score, baseline_category, baseline_details, baseline_action
 
         transaction_details["real_time_signals"] = layer3_signals
         
-        # 1. Rule-based explanation
+        ## 1. Rule-based explanation
         rule_based_explanation = generate_fraud_explanation(
             risk_score=risk_score,
             risk_category=risk_category,
             transaction_details=transaction_details
         )
-        
-        # 2. LLM explanation (if available)
+        #llm
         llm_explanation = generate_llm_explanation(
             risk_score=risk_score,
             risk_category=risk_category,
@@ -1086,7 +1066,7 @@ def real_time_risk_score_endpoint():
             recommended_action=recommended_action
         )
         
-        # 3. Combined/Final explanation (prefer LLM, fallback to rule-based)
+        ### 3. Combined/Final explanation (prefer LLM, fallback to rule-based)
         final_explanation = llm_explanation if llm_explanation else rule_based_explanation
 
         stored_scores[transaction_id] = {
@@ -1155,7 +1135,7 @@ def transactions_endpoint():
                     'message': 'No transactions data available !!!!!'
                 }), 500
 
-            # Check if the transaction exists
+            ### Checking if the transaction exists
             transaction = transactions.get(transaction_id)
 
             if not transaction:
@@ -1164,7 +1144,7 @@ def transactions_endpoint():
                     'message': f'Transaction with ID {transaction_id} not found !!!!!!!!!!!!!'
                 }), 404
 
-            # Get transaction details and ensure JSON serializability
+         
             def make_json_serializable(data):
                 """Recursively convert data to JSON-serializable types."""
                 if isinstance(data, dict):
@@ -1176,23 +1156,20 @@ def transactions_endpoint():
                 elif isinstance(data, (int, float, str)):
                     return data
                 elif isinstance(data, bool):
-                    return bool(data)  # Keep as boolean - JSON can handle this
+                    return bool(data)  
                 elif data is None:
                     return None
                 else:
-                    return str(data)  # Convert any other type to string
+                    return str(data)  
             
-            # Clean the transaction data
             cleaned_transaction = make_json_serializable(transaction)
             
-            # Extract cleaned details
             risk_category = cleaned_transaction.get('risk_category', 'Unknown')
             risk_score = float(cleaned_transaction.get('risk_score', 0))
             timestamp = cleaned_transaction.get('timestamp', '')
             transaction_details = cleaned_transaction.get('transaction_details', {})
             recommended_action = cleaned_transaction.get('recommended_action', '')
             
-            # Determine risk level
             if risk_category in ['Critical Fraud Risk', 'High Potential Fraud']:
                 risk_level = 'HIGH_RISK'
                 status_message = f'Transaction ID {transaction_id} is flagged as {risk_category} !!!!!!!!!'
@@ -1203,7 +1180,6 @@ def transactions_endpoint():
                 risk_level = 'LOW_RISK'
                 status_message = f'Transaction ID {transaction_id} has low risk !!!!!!!!!!!!'
 
-            # Prepare response with safe data
             response_data = {
                 'status': 'success',
                 'message': status_message,
@@ -1223,11 +1199,11 @@ def transactions_endpoint():
             return jsonify(response_data), 200
             
         else:
-            # ========== ALL TRANSACTIONS (PAGINATED) ==========
+    
             page = data.get('page', 1)
             size = data.get('size', 10)
             
-            # Validate pagination parameters
+            ## Validate pagination parameters
             if not isinstance(page, int) or page < 1:
                 return jsonify({
                     'status': 'error',
@@ -1240,7 +1216,6 @@ def transactions_endpoint():
                     'message': 'Size must be an integer between 1 and 100.'
                 }), 400
 
-            # Load transactions
             transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
 
             if not transactions:
@@ -1263,7 +1238,6 @@ def transactions_endpoint():
                     'recommended_action': tx_data.get('recommended_action', '')
                 })
             
-            # Sort by most recent
             tx_list.sort(key=lambda x: x['timestamp'], reverse=True)
             total = len(tx_list)
             start_idx = (page - 1) * size
@@ -1314,10 +1288,9 @@ def get_fraud_history():
                 'message': 'Size must be an integer between 1 and 100.'
             }), 400
 
-        # Load transactions from pickle file
         transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
 
-        if not transactions:  # Empty dict or None
+        if not transactions:  
             return jsonify({
                 'status': 'success',
                 'message': 'No transactions found.',
@@ -1354,7 +1327,6 @@ def get_fraud_history():
                 }
             }), 200
 
-        # Convert to list for sorting
         fraud_list = []
         for tx_id, tx_data in fraud_transactions.items():
             fraud_list.append({
@@ -1369,11 +1341,9 @@ def get_fraud_history():
         # Sort by risk score (highest first), then by timestamp (most recent first)
         fraud_list.sort(key=lambda x: (-x['risk_score'], x['timestamp']), reverse=True)
 
-        # Calculate pagination
         total = len(fraud_list)
-        total_pages = max(1, (total + size - 1) // size)  # Ensure at least 1 page
-        
-        # Clamp page to valid range
+        total_pages = max(1, (total + size - 1) // size) 
+   
         if page > total_pages:
             page = total_pages
         
@@ -1411,7 +1381,7 @@ def fraud_feedback():
         data = request.json
         transaction_id = data.get("transaction_id")
         feedback = data.get("feedback")  # "false_positive" or "confirmed_fraud"
-        signals = data.get("signals")    # Optional: feature contributions dict
+        signals = data.get("signals")    
 
         if not all([transaction_id, feedback]):
             return jsonify({"error": "transaction_id and feedback are required"}), 400
@@ -1426,9 +1396,8 @@ def fraud_feedback():
 
         if signals is None:
             transaction_details = stored_transactions[transaction_id].get("transaction_details", {})
-            signals = transaction_details  # use all features as signals
+            signals = transaction_details  
 
-        # Store the feedback
         store_feedback(transaction_id, feedback, signals)
         adapt_weights(signals, feedback)
 
