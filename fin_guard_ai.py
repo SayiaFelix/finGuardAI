@@ -545,7 +545,7 @@ def generate_llm_explanation(
                 {"role": "system", "content": "You are a financial fraud analyst explaining risk decisions to banking customers. Be clear, concise, and reassuring in a customer-friendly way. NB: Do NOT mention machine learning or models explicitly. Always use KES instead of $. "},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.5,  # Lower temperature for more consistent outputs
+            temperature=0.5, 
             max_tokens=200 
         )
         
@@ -599,9 +599,6 @@ def generate_fraud_explanation(risk_score, risk_category, transaction_details):
         "Model_Agreement", "multiple models evaluated this transaction"
     )
 
-    # -----------------------------
-    # Build contributing signals
-    # -----------------------------
     signals = []
 
     if amount >= 100000:
@@ -622,15 +619,12 @@ def generate_fraud_explanation(risk_score, risk_category, transaction_details):
     else:
         signals.append("minimal agreement across fraud detection models")
 
-    # Default if nothing detected
     if not signals:
         signals.append("normal transaction behavior patterns")
 
     signals_text = ", ".join(signals)
 
-    # -----------------------------
-    # Risk-aware explanation tone
-    # -----------------------------
+
     if risk_category == "Low Potential Fraud":
         explanation = (
             f"This transaction was assessed as **Low Risk** with a risk score of "
@@ -697,28 +691,24 @@ def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURE
     Adjusts feature weights based on user feedback.
     """
     try:
-        # Load current weights from pickle
         weights_df = load_from_pickle(weights_file)
         
         # Ensure weights_df is not empty
         if weights_df.empty:
             logger.error(f"Weights DataFrame is empty from {weights_file}")
-            # Recalculate weights if empty
             weights_df = calculate_feature_importance_weights()
-        
-        # Convert to dict for easier update
+ 
         weights_map = weights_df['Combined_Weight'].to_dict()
         
         # Get selected features to ensure we only update relevant ones
         selected_features = load_from_pickle(IMPORTANT_FEATURES_PKL)
         
         # Define adaptive step size (can be adjusted)
-        step_size = 0.02  # Small step to avoid drastic changes
+        step_size = 0.02 
         
         logger.info(f"Adapting weights for feedback: {feedback}")
         logger.info(f"Features in transaction: {list(transaction_features.keys())[:5]}...")
         
-        # Update weights for features present in this transaction
         updated_count = 0
         for feature in selected_features:
             if feature in transaction_features:
@@ -731,7 +721,7 @@ def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURE
                     updated_count += 1
                     
                 elif feedback == "false_positive":
-                    # Decrease weight for features that caused false alarm
+                  
                     new_weight = max(current_weight - step_size, 0.0)
                     weights_map[feature] = new_weight
                     updated_count += 1
@@ -742,7 +732,6 @@ def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURE
         # Normalize to ensure weights sum to 1
         weights_df['Combined_Weight'] = weights_df['Combined_Weight'] / weights_df['Combined_Weight'].sum()
         
-        # Save updated weights back to pickle
         save_to_pickle(weights_df, weights_file)
         
         logger.info(f"Adaptive weights updated: {updated_count} features adjusted for {feedback}")
@@ -774,7 +763,6 @@ def layer3_lite_adjustment(
     # Velocity risk (0–1)
     velocity_risk = min(tx_count_last_hour / 5, 1)
 
-    # Combine with base score (base_risk_score is 0–10)
     adjusted_score = (
         0.6 * (base_risk_score / 10) +
         0.25 * amount_risk +
