@@ -273,14 +273,11 @@ def prepare_and_split_data():
     """ Function to load, prepare data, and split it into training and testing sets """
     
     try:
-        # Load data from pickle
         data = prepare_data(file_path)
         logger.info('Data loaded', extra={'columns': data.columns.tolist()})
-        
-        # Extract target variable
+
         y = data['Class']
         
-        # Load selected features from pickle
         overall_selected_features = load_from_pickle(IMPORTANT_FEATURES_PKL)
         logger.info('Loaded selected features from pickle', extra={'features': overall_selected_features})
         
@@ -291,8 +288,7 @@ def prepare_and_split_data():
         # Split data into training and testing sets
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
         logger.info(f'Training set size: {X_train.shape}, Test set size: {X_test.shape}')
-        
-        #split data
+
         return X_train, X_test, y_train, y_test
     
     except Exception as e:
@@ -302,7 +298,7 @@ def prepare_and_split_data():
 # Function to calculate feature importance weight
 def calculate_feature_importance_weights():
     """ Calculate feature importance weights using RandomForest, Lasso, and XGBoost models """
-    # Load the data    
+
     X_train, X_test, y_train, y_test = prepare_and_split_data()
   
 
@@ -321,7 +317,6 @@ def calculate_feature_importance_weights():
     lasso_coefficients = lasso.coef_
     xgb_importances = xgb.feature_importances_
 
-    # DataFrame for feature importances
     feature_names = X_train.columns
     weights_df = pd.DataFrame({
         'Feature': feature_names,
@@ -332,16 +327,13 @@ def calculate_feature_importance_weights():
     print('\n================================ Calculated Weights ===============================================')
     print(weights_df)
     print('==========================================================================================')
-    
-    # Set the index to Feature
+
     weights_df.set_index('Feature', inplace=True)
 
-    # Normalize the weights
     weights_df['RF_Importance'] = weights_df['RF_Importance'] / weights_df['RF_Importance'].sum()
     # weights_df['Lasso_Coefficients'] = weights_df['Lasso_Coefficients'] / np.abs(weights_df['Lasso_Coefficients']).sum()
     weights_df['XGB_Importance'] = weights_df['XGB_Importance'] / weights_df['XGB_Importance'].sum()
 
-    # Combine weights (average for simplicity)
     weights_df['Combined_Weight'] = (weights_df['RF_Importance'] +
                                       weights_df['XGB_Importance']) / 2
 
@@ -351,7 +343,6 @@ def calculate_feature_importance_weights():
     print(sorted_weights)
     print('================================================================================================')
     
-    # Save the weights to pickle file
     save_to_pickle(sorted_weights, IMPORTANT_FEATURES_WEIGHTS_PKL)
     logger.info('IMPORTANT_FEATURES_WEIGHTS pickle Saved Successfully !!!!!!')
     
@@ -362,13 +353,11 @@ def normalize_and_categorize_risk_scores():
   
     X_train, X_test, y_train, y_test = prepare_and_split_data()
 
-    # Fit each model to the training data
     print('Training models, Saving and Calculating risk scores...')
     for name, model in models.items():
         model.fit(X_train, y_train)
         print(f'{name} model saved as {name}_model.joblib successfully!!!!!!!!!')
-    
-    # Save all models in one joblib file
+
     save_model_to_JobLib(models, RISK_MODELS_JOBLIB)
     print(f"All models saved in '{RISK_MODELS_JOBLIB}' successfully!!!!!")
     
@@ -376,15 +365,12 @@ def normalize_and_categorize_risk_scores():
     results_df = pd.DataFrame(X_test)
     results_df['True_Label'] = y_test
 
-    # Placeholder for aggregated scores
     aggregated_scores = np.zeros(len(X_test))
 
-    # Risk scores for each model and average them
     for name, model in models.items():
         # Predict probabilities (risk scores)
-        risk_scores = model.predict_proba(X_test)[:, 1]  # Probability of positive class
+        risk_scores = model.predict_proba(X_test)[:, 1]  
         print('Model', name,'risk scores ===========>', risk_scores)
-        # Add risk scores for this model to the aggregate
         aggregated_scores += risk_scores
         
     # Average the scores across all models
@@ -402,7 +388,6 @@ def normalize_and_categorize_risk_scores():
     print("Max Score:", max_score)
     print("Min Score:", min_score)
 
-    # Store results
     results_df['Average_Risk_Score'] = aggregated_scores
     results_df['Normalized_Risk_Score'] = normalized_scores
     results_df['Fraud_Prediction'] = (normalized_scores >= 5).astype(int)
@@ -424,7 +409,6 @@ def real_time_risk_scoring(transaction, models, weights_map):
     Improved function to calculate risk score with better weighting.
     """
     
-    # Load selected features from pickle
     overall_selected_features = load_from_pickle(IMPORTANT_FEATURES_PKL)
     
     # Ensure transaction has all required features
@@ -439,7 +423,7 @@ def real_time_risk_scoring(transaction, models, weights_map):
     probabilities = []
     
     for name, model in models.items():
-        # Get probability of fraud (class 1)
+    
         prob = model.predict_proba(transaction_features.values.reshape(1, -1))[:, 1][0]
         probabilities.append(prob)
         
@@ -447,12 +431,11 @@ def real_time_risk_scoring(transaction, models, weights_map):
         pred = model.predict(transaction_features.values.reshape(1, -1))[0]
         predictions.append(pred)
     
-    # Calculate ensemble scores
+    #ensemble scores
     avg_probability = np.mean(probabilities)
     fraud_votes = sum(predictions)
     total_models = len(models)
     
-    # Calculate feature-based score
     high_risk_features = [
         'Amount_Category_Very High',
         'Transaction_Location_International', 
@@ -464,7 +447,7 @@ def real_time_risk_scoring(transaction, models, weights_map):
     feature_score = 0
     for feature in high_risk_features:
         if feature in transaction and transaction[feature] == 1:
-            feature_score += 2 # Each high-risk feature adds 2 points
+            feature_score += 2 
     
     # Normalize feature score
     normalized_feature_score = min(feature_score / 10, 1.0)
