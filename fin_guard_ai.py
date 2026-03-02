@@ -667,7 +667,6 @@ def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURE
         # Get selected features to ensure we only update relevant ones
         selected_features = load_from_pickle(IMPORTANT_FEATURES_PKL)
         
-        # Define adaptive step size (can be adjusted)
         step_size = 0.02 
         
         logger.info(f"Adapting weights for feedback: {feedback}")
@@ -690,10 +689,8 @@ def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURE
                     weights_map[feature] = new_weight
                     updated_count += 1
         
-        # Update the DataFrame with new weights
         weights_df['Combined_Weight'] = weights_df.index.map(lambda f: weights_map.get(f, weights_df.loc[f, 'Combined_Weight'] if f in weights_df.index else 0))
         
-        # Normalize to ensure weights sum to 1
         weights_df['Combined_Weight'] = weights_df['Combined_Weight'] / weights_df['Combined_Weight'].sum()
         
         save_to_pickle(weights_df, weights_file)
