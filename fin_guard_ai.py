@@ -1049,12 +1049,16 @@ def real_time_risk_score_endpoint():
             'risk_category': risk_category,
             'transaction_details': transaction_details,
             'recommended_action': recommended_action,
+            
             'explanations': {
                 'rule_based': rule_based_explanation,
                 'llm': llm_explanation,
                 'final': final_explanation
             },
             'llm_status': 'connected' if client is not None else 'disconnected',
+            'model_version': MODEL_VERSION,
+            'threshold_used': get_active_threshold(),
+            'national_alert_mode': NATIONAL_ALERT_MODE,
             'feedback_used': existing_feedback['transaction_id'] if existing_feedback else None,
             'feedback_effect': feedback_effect
         }
