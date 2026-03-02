@@ -747,7 +747,7 @@ def layer3_lite_adjustment(
 ######################################## -------------------- APIS End Points ------------------------###################################
 #########################################################################################################################################
 
-@app.route('/v2/api/data_preparation', methods=['POST'])
+@app.route('/v1/api/data_preparation', methods=['POST'])
 def prepare_data_endpoint():
     # Ensure a file path is provided in the request
     filename = request.json.get("filename")
@@ -782,7 +782,7 @@ def prepare_data_endpoint():
             logger.error(f"Error processing data: {e}")
             return jsonify({"error": str(e)}), 500
 
-@app.route('/v2/api/feature_selection', methods=['GET'])
+@app.route('/v1/api/feature_selection', methods=['GET'])
 def feature_selection():
     """ Endpoint for performing feature selection """
     try:
@@ -839,7 +839,7 @@ def feature_selection():
             'message': f'An error occurred: {str(e)}'
         }), 500
         
-@app.route('/v2/api/load_feature_importance', methods=['GET'])
+@app.route('/v1/api/load_feature_importance', methods=['GET'])
 def load_model_endpoint():
     """ Endpoint for loading the model """
     try:
@@ -854,7 +854,7 @@ def load_model_endpoint():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/v2/api/feature_importance_weight', methods=['GET'])
+@app.route('/v1/api/feature_importance_weight', methods=['GET'])
 def feature_importance_weight_endpoint():
     """ Endpoint for loading or calculating feature importance weights """
     try:
@@ -882,7 +882,7 @@ def feature_importance_weight_endpoint():
             'message': f'An error occurred: {str(e)}'
         }), 500
 
-@app.route('/v2/api/batch_risk_scores', methods=['POST'])
+@app.route('/v1/api/batch_risk_scores', methods=['POST'])
 def normalized_scores_endpoint():
     """Endpoint for loading or calculating normalized scores sample"""
     try:
@@ -927,7 +927,7 @@ def normalized_scores_endpoint():
             'message': f'An error occurred: {str(e)}'
         }), 500
 
-@app.route('/v2/api/real_time_risk_score', methods=['POST'])
+@app.route('/v1/api/real_time_risk_score', methods=['POST'])
 def real_time_risk_score_endpoint():
     """Endpoint for real-time calculation and storage of risk scores with JSON feedback integration."""
     try:
@@ -1067,7 +1067,7 @@ def real_time_risk_score_endpoint():
         }), 500
         
     
-@app.route('/v2/api/transactions', methods=['POST'])
+@app.route('/v1/api/transactions', methods=['POST'])
 def transactions_endpoint():
     """
     Unified endpoint for transactions.
@@ -1216,7 +1216,7 @@ def transactions_endpoint():
             'message': f'Internal server error: {str(e)}'
         }), 500
        
-@app.route('/v2/api/fraud_history', methods=['POST'])
+@app.route('/v1/api/fraud_history', methods=['POST'])
 def get_fraud_history():
     """
     Endpoint to get all transactions flagged as High Potential Fraud OR Critical Fraud Risk.
@@ -1324,7 +1324,7 @@ def get_fraud_history():
             'message': f'Internal server error: {str(e)}'
         }), 500        
 
-@app.route("/v2/api/fraud_feedback", methods=["POST"])
+@app.route("/v1/api/fraud_feedback", methods=["POST"])
 def fraud_feedback():
     """
     Endpoint to handle fraud feedback from users or analysts.
@@ -1359,7 +1359,7 @@ def fraud_feedback():
         logger.error(f"Error in fraud feedback endpoint: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/v2/api/test', methods=['GET'])
+@app.route('/v1/api/test', methods=['GET'])
 def test():
     return "Testing endpoint, fraud detection apis working effectively !!!!!!!!!!!!"
 
