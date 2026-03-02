@@ -16,7 +16,6 @@ from collections import Counter
 # Third-party library imports
 import numpy as np
 import pandas as pd
-import logging
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 from catboost import CatBoostClassifier
@@ -42,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app) 
-random.seed = 42
+random.seed(42)
 
 load_dotenv() 
 
@@ -458,11 +457,13 @@ def real_time_risk_scoring(transaction, models, weights_map):
     # Scale to 0-10 range
     risk_score = round(final_score * 10, 2)
     
+    threshold = get_active_threshold()
+
     # Risk categorization
     if risk_score >= 7:
         risk_category = "Critical Fraud Risk"
         recommended_action = "Block transaction immediately and notify authorities."
-    elif risk_score >= 5:
+    elif risk_score >= threshold:
         risk_category = "High Potential Fraud"
         recommended_action = "Flag for review and escalate to fraud investigation team."
     elif risk_score >= 3:
@@ -497,12 +498,18 @@ def generate_transaction_id():
     random_digits = f"{random.randint(0, 9999):04d}" 
     return f"T{random_letter}{date_str}{random_digits}I" 
 
+
+
 def generate_llm_explanation(
     risk_score,
     risk_category,
     transaction_details,
     recommended_action
 ):
+    # if SOVEREIGN_MODE:
+    #     logger.info("Sovereign mode active - LLM disabled")
+    #     return None
+
     if client is None:
         logger.info("LLM disabled: GROQ_API_KEY not set")
         return None 
@@ -991,19 +998,24 @@ def real_time_risk_score_endpoint():
         ## Override risk score ONLY if Layer 3 increases risk meaningfully
         if adjusted_score > baseline_score:
             risk_score = adjusted_score
-            risk_category = (
-                "Critical Fraud Risk" if risk_score >= 7 else
-                "High Potential Fraud" if risk_score >= 5 else
-                "Medium Risk" if risk_score >= 3 else
-                "Low Potential Fraud"
-            )
+            
+            threshold = get_active_threshold()
+
+            if risk_score >= 7:
+                risk_category = "Critical Fraud Risk"
+            elif risk_score >= threshold:
+                risk_category = "High Potential Fraud"
+            elif risk_score >= 3:
+                risk_category = "Medium Risk"
+            else:
+                risk_category = "Low Potential Fraud"
+            
         else:
             risk_score = baseline_score
             risk_category = baseline_category
             
         feedback_effect = None
 
-        # --- Adapt weights if feedback exists and recalc ---
         if existing_feedback:
             print(f"Similar transaction found in feedback (ID: {existing_feedback['transaction_id']}). Adapting weights...")
             adapted_weights = adapt_weights(transaction_data, existing_feedback['outcome'], IMPORTANT_FEATURES_WEIGHTS_PKL)
