@@ -58,8 +58,7 @@ if GROQ_API_KEY:
     logger.info(f"Groq Status: CONNECTED ✓")
 else:
     client = None
-    logger.warning("Groq Status: DISCONNECTED ✗ - No API key found")
-     
+    logger.warning("Groq Status: DISCONNECTED ✗ - No API key found")    
      
 
 # Cache location
@@ -82,6 +81,19 @@ RISK_MODELS_JOBLIB = os.path.join(CACHE_DIR, 'risk_models.joblib')
 SCALER_DATA = os.path.join(CACHE_DIR, 'scaler.pkl')
 file_path = os.path.join(DATA_DIR, "fraud_detection_data.csv")
 
+##### ================== SYSTEM CONFIGURATION ==================
+
+MODEL_VERSION = "v1.0.0-stage1"
+
+SOVEREIGN_MODE = True  ## If True → disables LLM external calls
+NATIONAL_ALERT_MODE = False
+
+DEFAULT_THRESHOLD = 5.0
+ALERT_THRESHOLD = 4.0
+
+
+def get_active_threshold():
+    return ALERT_THRESHOLD if NATIONAL_ALERT_MODE else DEFAULT_THRESHOLD
 
 # Saving to pickle
 def save_to_pickle(data, filename):
