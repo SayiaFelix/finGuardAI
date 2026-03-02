@@ -1425,6 +1425,20 @@ def model_metrics_endpoint():
             "message": str(e)
         }), 500
     
+@app.route('/v1/api/system/alert_mode', methods=['POST'])
+def toggle_alert_mode():
+    global NATIONAL_ALERT_MODE
+    data = request.get_json()
+    mode = data.get("enable", False)
+
+    NATIONAL_ALERT_MODE = bool(mode)
+
+    return jsonify({
+        "status": "success",
+        "national_alert_mode": NATIONAL_ALERT_MODE,
+        "active_threshold": get_active_threshold()
+    })
+    
 @app.route('/v1/api/test', methods=['GET'])
 def test():
     return "Testing endpoint, fraud detection apis working effectively !!!!!!!!!!!!"
