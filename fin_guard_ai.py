@@ -751,7 +751,20 @@ def layer3_lite_adjustment(
 
     return final_score, signals
 
+def log_decision(transaction_id, risk_score, risk_category, recommended_action):
+    log_entry = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "transaction_id": transaction_id,
+        "model_version": MODEL_VERSION,
+        "risk_score": risk_score,
+        "risk_category": risk_category,
+        "recommended_action": recommended_action,
+        "national_alert_mode": NATIONAL_ALERT_MODE
+    }
 
+    with open("audit_log.json", "a") as f:
+        f.write(json.dumps(log_entry) + "\n")
+        
 #########################################################################################################################################
 ######################################## -------------------- APIS End Points ------------------------###################################
 #########################################################################################################################################
@@ -1045,6 +1058,13 @@ def real_time_risk_score_endpoint():
             'feedback_used': existing_feedback['transaction_id'] if existing_feedback else None,
             'feedback_effect': feedback_effect
         }
+        
+        log_decision(
+            transaction_id,
+            risk_score,
+            risk_category,
+            recommended_action
+        )
         save_to_pickle(stored_scores, REAL_TIME_RISK_SCORES_PKL)
 
         return jsonify({
@@ -1141,6 +1161,7 @@ def transactions_endpoint():
                 risk_level = 'LOW_RISK'
                 status_message = f'Transaction ID {transaction_id} has low risk !!!!!!!!!!!!'
 
+            active_threshold = get_active_threshold()
             response_data = {
                 'status': 'success',
                 'message': status_message,
@@ -1150,8 +1171,8 @@ def transactions_endpoint():
                     'risk_score': float(risk_score),
                     'risk_category': str(risk_category),
                     'risk_alert_level': str(risk_level),
-                    'threshold': 5.0,
-                    'is_high_risk': bool(risk_score >= 5.0)
+                    'threshold': active_threshold,
+                    'is_high_risk': bool(risk_score >= active_threshold)
                 },
                 'transaction_details': transaction_details,
                 'recommended_action': str(recommended_action),
@@ -1368,6 +1389,42 @@ def fraud_feedback():
         logger.error(f"Error in fraud feedback endpoint: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/v1/api/model_metrics', methods=['GET'])
+def model_metrics_endpoint():
+    try:
+        X_train, X_test, y_train, y_test = prepare_and_split_data()
+        models = load_model_from_JobLib(RISK_MODELS_JOBLIB)
+
+        metrics = {}
+
+        from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+
+        for name, model in models.items():
+            y_pred = model.predict(X_test)
+            y_prob = model.predict_proba(X_test)[:, 1]
+
+            metrics[name] = {
+                "accuracy": round(accuracy_score(y_test, y_pred), 4),
+                "precision": round(precision_score(y_test, y_pred), 4),
+                "recall": round(recall_score(y_test, y_pred), 4),
+                "f1_score": round(f1_score(y_test, y_pred), 4),
+                "roc_auc": round(roc_auc_score(y_test, y_prob), 4)
+            }
+
+        return jsonify({
+            "status": "success",
+            "model_version": MODEL_VERSION,
+            "national_alert_mode": NATIONAL_ALERT_MODE,
+            "threshold": get_active_threshold(),
+            "metrics": metrics
+        })
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+    
 @app.route('/v1/api/test', methods=['GET'])
 def test():
     return "Testing endpoint, fraud detection apis working effectively !!!!!!!!!!!!"
