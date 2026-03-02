@@ -46,19 +46,6 @@ random.seed = 42
 
 load_dotenv() 
 
-# OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-# client = OpenAI(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
-
-# if GROQ_API_KEY and client:
-#     logger.info(f"GROQ API Key (first 8): {GROQ_API_KEY[:8]}")
-#     # logger.info(f"GROQ client initialized: {client}")
-#     logger.info(f"GROQ Status: CONNECTED ✓")
-# else:
-#     logger.warning("GROQ Status: DISCONNECTED ✗")
-
-# Initialize Groq client (OpenAI-compatible)
-
 GROQ_API_KEY = os.getenv("OPENAI_API_KEY")
 base_url = os.getenv("BASE_URL")
 
@@ -96,7 +83,7 @@ SCALER_DATA = os.path.join(CACHE_DIR, 'scaler.pkl')
 file_path = os.path.join(DATA_DIR, "fraud_detection_data.csv")
 
 
-# Saving to pickle function
+# Saving to pickle
 def save_to_pickle(data, filename):
     """ Save only the selected important features to a pickle file """
     try:
@@ -107,7 +94,7 @@ def save_to_pickle(data, filename):
         logger.error(f"Error saving {file} Pickle File !!!!!: {str(e)}")
         raise
 
-# Loading from pickle function
+# Loading from pickle
 def load_from_pickle(filename):
     if os.path.exists(filename):
         with open(filename, 'rb') as file:
@@ -118,12 +105,12 @@ def load_from_pickle(filename):
         return {} 
 
 
-# Saving the trained model to a file
+# Saving the trained model
 def save_model_to_JobLib(model, filename):
     joblib.dump(model, filename)
     print(f"Model saved as {filename}")
     
-#### Loading the saved model from a file
+#### Loading the saved model
 def load_model_from_JobLib(filename):
     model = joblib.load(filename)
     print(f"Model loaded from {filename}")
@@ -162,7 +149,6 @@ models = {
         'CatBoost': CatBoostClassifier(n_estimators=100, learning_rate=0.1, depth=6, class_weights=[1, 5], verbose=0, random_state=42),
     }
 
-# Helper functions for Data preparation function
 def prepare_data(file_path):
 
     logger.info("Loading and preprocessing data !!!!!!!!!!!!!!!!!!!!!!!!!!!")
@@ -195,10 +181,8 @@ def prepare_data(file_path):
         include_lowest=True
     )
 
-    # Drop unnecessary columns
     data = data.drop(['Transaction_ID', 'Account_ID', 'Transaction_Date'], axis=1)
 
-    # Convert IP addresses and other IDs to integer values
     def convert_to_integer(value):
         try:
             value = str(value)
@@ -224,7 +208,6 @@ def prepare_data(file_path):
     encoded_df = pd.DataFrame(encoded_columns.toarray(), columns=onehot_encoder.get_feature_names_out(categorical_columns))
     encoded_df.index = data.index
 
-    # Drop original categorical columns and concatenate encoded columns
     data = data.drop(categorical_columns, axis=1)
     data = pd.concat([data, encoded_df], axis=1)
 
@@ -300,8 +283,7 @@ def calculate_feature_importance_weights():
 
     X_train, X_test, y_train, y_test = prepare_and_split_data()
   
-
-    # Fit the models to extract importances
+    # Fit the models
     rf = RandomForestClassifier(n_estimators=100, random_state=42)
     rf.fit(X_train, y_train)
 
