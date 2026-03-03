@@ -99,11 +99,9 @@ NATIONAL_ALERT_MODE = False
 DEFAULT_THRESHOLD = 5.0
 ALERT_THRESHOLD = 4.0
 
-
 def get_active_threshold():
     return ALERT_THRESHOLD if NATIONAL_ALERT_MODE else DEFAULT_THRESHOLD
 
-# Saving to pickle
 def save_to_pickle(data, filename):
     """ Save only the selected important features to a pickle file """
     try:
@@ -142,7 +140,6 @@ def load_or_initialize_pickle(filename, data):
         with open(filename, 'rb') as file:
             return pickle.load(file)
     else:
-        # Initialize with default data and save
         with open(filename, 'wb') as file:
             pickle.dump(data, file)
         return data
@@ -178,7 +175,7 @@ def prepare_data(file_path):
     cols_to_check = ['Transaction_Amount', 'Device_Type', 'Transaction_Type', 'IP_Address']
     data.dropna(subset=cols_to_check, inplace=True)
 
-    # Convert Transaction_Date to datetime and extract hour, day of week, and weekend info
+    # Converting Transaction_Date to datetime and extract hour, day of week, and weekend info
     data['Transaction_Date'] = pd.to_datetime(data['Transaction_Date'], errors='coerce')
     data['Transaction_Hour'] = data['Transaction_Date'].dt.hour
     data['Day_of_Week'] = data['Transaction_Date'].dt.dayofweek
@@ -217,7 +214,6 @@ def prepare_data(file_path):
 
     data['IP_Address'] = data['IP_Address'].apply(convert_to_integer)
 
-    # Scale Transaction_Hour
     robust_scaler = RobustScaler()
     data['Transaction_Hour'] = robust_scaler.fit_transform(data['Transaction_Hour'].values.reshape(-1, 1))
 
@@ -287,7 +283,6 @@ def prepare_and_split_data():
         X = data[overall_selected_features]
         logger.info('Prepared feature set', extra={'features': X.columns.tolist()})
         
-        # Split data into training and testing sets
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
         logger.info(f'Training set size: {X_train.shape}, Test set size: {X_test.shape}')
 
@@ -361,7 +356,7 @@ def normalize_and_categorize_risk_scores():
     save_model_to_JobLib(models, RISK_MODELS_JOBLIB)
     print(f"All models saved in '{RISK_MODELS_JOBLIB}' successfully!!!!!")
     
-    # Initialize DataFrame to hold results
+    # Initialize DataFrame
     results_df = pd.DataFrame(X_test)
     results_df['True_Label'] = y_test
 
@@ -373,7 +368,6 @@ def normalize_and_categorize_risk_scores():
         print('Model', name,'risk scores ===========>', risk_scores)
         aggregated_scores += risk_scores
         
-    # Average the scores across all models
     aggregated_scores /= len(models)
 
     # Normalize aggregated scores to a 0–100 scale
@@ -425,8 +419,7 @@ def real_time_risk_scoring(transaction, models, weights_map):
     for name, model in models.items():
         prob = model.predict_proba(transaction_features.values.reshape(1, -1))[:, 1][0]
         probabilities.append(prob)
-        
-        # Get binary prediction
+
         pred = model.predict(transaction_features.values.reshape(1, -1))[0]
         predictions.append(pred)
     
@@ -503,8 +496,6 @@ def generate_transaction_id():
     date_str = datetime.now().strftime("%Y%m%d")  
     random_digits = f"{random.randint(0, 9999):04d}" 
     return f"T{random_letter}{date_str}{random_digits}I" 
-
-
 
 def generate_llm_explanation(
     risk_score,
@@ -613,7 +604,6 @@ def generate_fraud_explanation(risk_score, risk_category, transaction_details):
 
     signals_text = ", ".join(signals)
 
-
     if risk_category == "Low Potential Fraud":
         explanation = (
             f"This transaction was assessed as **Low Risk** with a risk score of "
@@ -682,18 +672,17 @@ def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURE
     try:
         weights_df = load_from_pickle(weights_file)
         
-        # Ensure weights_df is not empty
+        # Ensuring weights_df is not empty
         if weights_df.empty:
             logger.error(f"Weights DataFrame is empty from {weights_file}")
             weights_df = calculate_feature_importance_weights()
  
         weights_map = weights_df['Combined_Weight'].to_dict()
         
-        # Get selected features to ensure we only update relevant ones
         selected_features = load_from_pickle(IMPORTANT_FEATURES_PKL)
         
         # Increase step size for more visible effect
-        step_size = 0.05  # Changed from 0.02 to 0.05
+        step_size = 0.05  
         
         logger.info(f"Adapting weights for feedback: {feedback}")
         logger.info(f"Features in transaction: {list(transaction_features.keys())[:5]}...")
@@ -715,9 +704,8 @@ def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURE
                     new_weight = max(current_weight - step_size, 0.0)
                     weights_map[feature] = new_weight
                     updated_count += 1
-                    print(f"  ❌ Decreased {feature}: {current_weight:.4f} → {new_weight:.4f}")
+                    print(f" Decreased {feature}: {current_weight:.4f} → {new_weight:.4f}")
         
-        # Update the DataFrame with new weights
         for feature in weights_df.index:
             if feature in weights_map:
                 weights_df.loc[feature, 'Combined_Weight'] = weights_map[feature]
