@@ -1138,7 +1138,7 @@ def real_time_risk_score_endpoint():
         
         ### 3. Combined/Final explanation 
         final_explanation = llm_explanation if llm_explanation else rule_based_explanation
-
+        
         stored_scores[transaction_id] = {
             'timestamp': timestamp,
             'risk_score': risk_score,
@@ -1158,7 +1158,7 @@ def real_time_risk_score_endpoint():
             'feedback_used': existing_feedback['transaction_id'] if existing_feedback else None,
             'feedback_effect': feedback_effect
         }
-        
+
         log_decision(
             transaction_id,
             risk_score,
@@ -1258,6 +1258,7 @@ def transactions_endpoint():
                 status_message = f'Transaction ID {transaction_id} has low risk !!!!!!!!!!!!'
 
             active_threshold = get_active_threshold()
+           
             response_data = {
                 'status': 'success',
                 'message': status_message,
@@ -1272,8 +1273,11 @@ def transactions_endpoint():
                 },
                 'transaction_details': transaction_details,
                 'recommended_action': str(recommended_action),
+              
+                'explanations': cleaned_transaction.get('explanations', {}),
+                'llm_status': cleaned_transaction.get('llm_status', 'disconnected'),
+                'feedback_effect': cleaned_transaction.get('feedback_effect')
             }
-
             return jsonify(response_data), 200
             
         else:
@@ -1303,8 +1307,7 @@ def transactions_endpoint():
                     'transactions': [],
                     'total': 0
                 }), 200
-
-            # Convert to list and sort
+                
             tx_list = []
             for tx_id, tx_data in transactions.items():
                 tx_list.append({
@@ -1313,8 +1316,16 @@ def transactions_endpoint():
                     'risk_score': tx_data.get('risk_score', 0),
                     'risk_category': tx_data.get('risk_category', ''),
                     'transaction_details': tx_data.get('transaction_details', {}),
-                    'recommended_action': tx_data.get('recommended_action', '')
+                    'recommended_action': tx_data.get('recommended_action', ''),
+                    'explanations': tx_data.get('explanations', {}),
+                    'llm_status': tx_data.get('llm_status', 'disconnected'),
+                    'model_version': tx_data.get('model_version', MODEL_VERSION),
+                    'threshold_used': tx_data.get('threshold_used', get_active_threshold()),
+                    'national_alert_mode': tx_data.get('national_alert_mode', NATIONAL_ALERT_MODE),
+                    'feedback_used': tx_data.get('feedback_used'),
+                    'feedback_effect': tx_data.get('feedback_effect')
                 })
+
             
             tx_list.sort(key=lambda x: x['timestamp'], reverse=True)
             total = len(tx_list)
