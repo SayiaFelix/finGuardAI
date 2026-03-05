@@ -573,9 +573,9 @@ def generate_llm_explanation(
     recommended_action
 ):
     
-    if SOVEREIGN_MODE:
-        logger.info("Sovereign mode active - LLM disabled")
-        return None
+    # if SOVEREIGN_MODE:
+    #     logger.info("Sovereign mode active - LLM disabled")
+    #     return None
 
     if client is None:
         logger.info("LLM disabled: GROQ_API_KEY not set")
