@@ -615,6 +615,12 @@ def build_llm_prompt(
     transaction_details,
     recommended_action
 ):
+    # Extracting rule information
+    rule_info = ""
+    if transaction_details.get('Rule_Triggered', False):
+        rules = transaction_details.get('Rule_Flags', [])
+        rule_info = f"\n- Risk Patterns Detected: {', '.join(rules)}"
+    
     return f"""
         You are a financial fraud explanation assistant for a bank.
 
@@ -627,6 +633,7 @@ def build_llm_prompt(
         - Risk Category: {risk_category}
         - Transaction Amount: {transaction_details.get("Transaction_Amount")}
         - Model Agreement: {transaction_details.get("Model_Agreement")}
+        {rule_info}
 
         Required output:
         1. Brief explanation (1–2 sentences)
@@ -638,7 +645,7 @@ def build_llm_prompt(
         - Trustworthy
         - Customer-friendly
         """
-
+        
 def generate_fraud_explanation(risk_score, risk_category, transaction_details):
     """
     Generates a human-readable explanation for ALL risk categories
