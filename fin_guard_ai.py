@@ -596,7 +596,7 @@ def generate_llm_explanation(
                 {"role": "user", "content": prompt}
             ],
             temperature=0.5, 
-            max_tokens=200 
+            max_tokens=100 
         )
         
         explanation = response.choices[0].message.content.strip()
@@ -624,7 +624,8 @@ def build_llm_prompt(
     return f"""
         You are a financial fraud explanation assistant for a bank.
 
-        Explain the transaction decision clearly, professionally, and calmly.
+        Explain the transaction decision clearly, professionally, and calmly in a SINGLE PARAGRAPH.
+        Do NOT use numbered lists (like 1., 2., 3.) or bullet points.
         Do NOT alarm the customer unnecessarily.
         Do NOT mention machine learning or models explicitly.
 
@@ -635,17 +636,15 @@ def build_llm_prompt(
         - Model Agreement: {transaction_details.get("Model_Agreement")}
         {rule_info}
 
-        Required output:
-        1. Brief explanation (1–2 sentences)
-        2. Why this risk level makes sense
-        3. What action (if any) is recommended
+        Your response should be ONE flowing paragraph that:
+        1. Briefly explains the decision
+        2. Explains why this risk level makes sense
+        3. States what action is recommended
+        4. Always be brief and customer-friendly.
 
-        Tone:
-        - Clear
-        - Trustworthy
-        - Customer-friendly
+        Tone: Clear, Trustworthy, Customer-friendly
         """
-        
+    
 def generate_fraud_explanation(risk_score, risk_category, transaction_details):
     """
     Generates a human-readable explanation for ALL risk categories
