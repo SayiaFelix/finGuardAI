@@ -573,9 +573,9 @@ def generate_llm_explanation(
     recommended_action
 ):
     
-    # if SOVEREIGN_MODE:
-    #     logger.info("Sovereign mode active - LLM disabled")
-    #     return None
+    if SOVEREIGN_MODE:
+        logger.info("Sovereign mode active - LLM disabled")
+        return None
 
     if client is None:
         logger.info("LLM disabled: GROQ_API_KEY not set")
@@ -701,7 +701,7 @@ def generate_fraud_explanation(risk_score, risk_category, transaction_details):
 
     if risk_category == "Low Potential Fraud":
         explanation = (
-            f"This transaction was assessed as **Low Risk** with a risk score of "
+            f"This transaction was assessed as Low Potential Fraud with a risk score of "
             f"{round(risk_score, 2)}. The transaction aligns closely with the "
             f"customer’s typical behavior and historical transaction patterns. "
             f"Only minimal risk indicators were observed, including {signals_text}. "
@@ -710,7 +710,7 @@ def generate_fraud_explanation(risk_score, risk_category, transaction_details):
 
     elif risk_category == "Medium Risk":
         explanation = (
-            f"This transaction was classified as **Medium Risk** with a risk score of "
+            f"This transaction was classified as Medium Potential Fraud with a risk score of "
             f"{round(risk_score, 2)}. While the transaction does not strongly indicate fraud, "
             f"the system detected {signals_text}, which slightly deviates from normal patterns. "
             f"As a precaution, additional verification is recommended to confirm transaction legitimacy."
@@ -718,7 +718,7 @@ def generate_fraud_explanation(risk_score, risk_category, transaction_details):
 
     elif risk_category == "High Potential Fraud":
         explanation = (
-            f"This transaction was flagged as **High Potential Fraud** with a risk score of "
+            f"This transaction was flagged as High Potential Fraud with a risk score of "
             f"{round(risk_score, 2)}. The system detected {signals_text}, along with behavioral patterns "
             f"that differ significantly from the customer’s historical activity. "
             f"These indicators are consistent with known fraud scenarios observed across similar accounts. "
@@ -728,7 +728,7 @@ def generate_fraud_explanation(risk_score, risk_category, transaction_details):
 
     else:  # Critical Fraud Risk
         explanation = (
-            f"This transaction was identified as **Critical Fraud Risk** with a risk score of "
+            f"This transaction was identified as Critical Fraud Risk with a risk score of "
             f"{round(risk_score, 2)}. Strong risk signals were detected, including {signals_text}, "
             f"and a high level of consensus among fraud detection models. "
             f"The observed patterns closely resemble confirmed fraud cases, posing a significant threat "
