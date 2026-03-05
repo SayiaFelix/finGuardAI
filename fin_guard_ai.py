@@ -592,11 +592,11 @@ def generate_llm_explanation(
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile", 
             messages=[
-                {"role": "system", "content": "You are a financial fraud analyst explaining risk decisions to banking customers. Be clear, concise, and reassuring in a customer-friendly way. NB: Do NOT mention machine learning or models explicitly. Always use KES instead of $. "},
+                {"role": "system", "content": "You are a financial fraud analyst explaining risk decisions to banking customers. Be clear, concise, and reassuring in a customer-friendly way. NB: Do NOT mention machine learning or models explicitly. Always use KES instead of $ and complete your paragraph with a clear recommendation at the end."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.5, 
-            max_tokens=100 
+            max_tokens=200 
         )
         
         explanation = response.choices[0].message.content.strip()
@@ -621,30 +621,48 @@ def build_llm_prompt(
         rules = transaction_details.get('Rule_Flags', [])
         rule_info = f"\n- Risk Patterns Detected: {', '.join(rules)}"
     
+    # Mapping risk category to user-friendly terms
+    if "Critical" in risk_category:
+        risk_level = "critical"
+        action_urgency = "immediately"
+    elif "High" in risk_category:
+        risk_level = "high"
+        action_urgency = "as soon as possible"
+    elif "Medium" in risk_category:
+        risk_level = "medium"
+        action_urgency = "as a precaution"
+    else:
+        risk_level = "low"
+        action_urgency = "for your information"
+    
     return f"""
-        You are a financial fraud explanation assistant for a bank.
-
-        Explain the transaction decision clearly, professionally, and calmly in a SINGLE PARAGRAPH.
-        Do NOT use numbered lists (like 1., 2., 3.) or bullet points.
-        Do NOT alarm the customer unnecessarily.
-        Do NOT mention machine learning or models explicitly.
+        You are a financial fraud explanation assistant for a bank. Your responses MUST be complete sentences and ALWAYS end with a clear recommendation.
 
         Transaction summary:
-        - Risk Score: {risk_score}/10
+        - Risk Score: {risk_score}/10 ({risk_level} risk)
         - Risk Category: {risk_category}
-        - Transaction Amount: {transaction_details.get("Transaction_Amount")}
-        - Model Agreement: {transaction_details.get("Model_Agreement")}
-        {rule_info}
+        - Transaction Amount: KES {transaction_details.get("Transaction_Amount"):,.0f}
+        - Risk Indicators: {rule_info if rule_info else 'No specific risk patterns detected'}
+        - Recommended Action from System: {recommended_action}
 
-        Your response should be ONE flowing paragraph that:
-        1. Briefly explains the decision
-        2. Explains why this risk level makes sense
-        3. States what action is recommended
-        4. Always be brief and customer-friendly.
+        Write a SINGLE flowing paragraph that:
+        1. Starts by stating the transaction amount and risk assessment
+        2. Explains WHY this risk level makes sense (mention specific risk factors if any)
+        3. ENDS with a clear, complete recommendation (use the recommended action provided) with full sentences.
+
+        IMPORTANT GUIDELINES:
+        - Write in complete sentences only
+        - Do NOT use numbered lists (1., 2., 3.)
+        - Do NOT use bullet points
+        - Do NOT mention machine learning or models explicitly
+        - ALWAYS end with a complete sentence that states the recommendation with full stop at the end
+        - Keep it concise but complete (1-2 sentences max)
+        - Use KES when mentioning amounts, and format with commas for thousands
+        - Use a clear, trustworthy, and customer-friendly tone throughout the explanation.
 
         Tone: Clear, Trustworthy, Customer-friendly
         """
-    
+ 
 def generate_fraud_explanation(risk_score, risk_category, transaction_details):
     """
     Generates a human-readable explanation for ALL risk categories
