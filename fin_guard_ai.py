@@ -451,7 +451,7 @@ def real_time_risk_scoring(transaction, models, weights_map):
         rule_reasons.append("Weekend evening transaction")
         rule_severity += 1
     
-    ### Rule 4: Amount exceeds threshold (KES 10,000)
+    ### Rule 4: Amount exceeds threshold (KES 100,000)
     if transaction.get('Transaction_Amount', 0) > 100000:
         rule_flagged = True
         rule_reasons.append("Amount exceeds KES 10,000")
@@ -501,7 +501,7 @@ def real_time_risk_scoring(transaction, models, weights_map):
     # Normalize feature score
     normalized_feature_score = min(feature_score / 10, 1.0)
     
-    ### Add rule influence to feature score (for hybrid scoring)
+    ### Adding rule influence to feature score (for hybrid scoring)
     if rule_flagged:
     
         rule_boost = min(rule_severity / 10, 0.3)  
