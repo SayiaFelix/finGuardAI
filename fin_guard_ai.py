@@ -401,18 +401,18 @@ def normalize_and_categorize_risk_scores():
 def real_time_risk_scoring(transaction, models, weights_map):
     """
     Improved function to calculate risk score with better weighting.
+    Hybrid approach combining 7 ML models with rule-based detection.
     """
     
     overall_selected_features = load_from_pickle(IMPORTANT_FEATURES_PKL)
     
-    # Ensure transaction has all required features
+    ## Ensuring transaction has all required features
     for feature in overall_selected_features:
         if feature not in transaction:
             transaction[feature] = 0
     
     transaction_features = transaction[overall_selected_features]
-    
-    # Get predictions from all models
+
     predictions = []
     probabilities = []
     
@@ -423,10 +423,67 @@ def real_time_risk_scoring(transaction, models, weights_map):
         pred = model.predict(transaction_features.values.reshape(1, -1))[0]
         predictions.append(pred)
     
-    #ensemble scores
     avg_probability = np.mean(probabilities)
     fraud_votes = sum(predictions)
     total_models = len(models)
+    
+    ## RULE-BASED DETECTION ENGINE
+    # This complements ML models by capturing known fraud patterns
+    rule_flagged = False
+    rule_reasons = []
+    rule_severity = 0  
+    
+    ## Rule 1: Unknown device (common fraud indicator)
+    if transaction.get('Device_Type_Unknown_Device', 0) == 1:
+        rule_flagged = True
+        rule_reasons.append("Unknown device")
+        rule_severity += 2
+    
+    ####Rule 2: International transaction (higher risk)
+    if transaction.get('Transaction_Location_International', 0) == 1:
+        rule_flagged = True
+        rule_reasons.append("International location")
+        rule_severity += 2
+    
+    ## Rule 3: Weekend night transaction (unusual hours)
+    if transaction.get('Is_Weekend', 0) == 1 and transaction.get('Transaction_Period_Evening', 0) == 1:
+        rule_flagged = True
+        rule_reasons.append("Weekend evening transaction")
+        rule_severity += 1
+    
+    ### Rule 4: Amount exceeds threshold (KES 10,000)
+    if transaction.get('Transaction_Amount', 0) > 100000:
+        rule_flagged = True
+        rule_reasons.append("Amount exceeds KES 10,000")
+        rule_severity += 1
+    
+    ## Rule 5: High transaction frequency (velocity check)
+    if transaction.get('Transaction_Frequency', 0) > 5:
+        rule_flagged = True
+        rule_reasons.append("High transaction frequency")
+        rule_severity += 2
+    
+    ###Rule 6: Unusual transaction hour (late night)
+    if transaction.get('Transaction_Hour', 0) < 5 or transaction.get('Transaction_Hour', 0) > 23:
+        rule_flagged = True
+        rule_reasons.append("Unusual transaction hour")
+        rule_severity += 1
+    
+    #Combining ML votes with rule flags for final decision
+    total_flags = fraud_votes
+    if rule_flagged:
+        total_flags = max(fraud_votes, 1)
+        
+        if rule_severity >= 4:
+            total_flags = max(total_flags, 2)
+        elif rule_severity >= 6:
+            total_flags = max(total_flags, 3)
+    
+    if rule_flagged:
+        print(f"\nRULE ENGINE TRIGGERED:")
+        print(f"   Rules: {', '.join(rule_reasons)}")
+        print(f"   Severity: {rule_severity}")
+        print(f"   ML Votes: {fraud_votes}/{total_models} → Total Flags: {total_flags}/{total_models}")
     
     high_risk_features = [
         'Amount_Category_Very High',
@@ -444,14 +501,15 @@ def real_time_risk_scoring(transaction, models, weights_map):
     # Normalize feature score
     normalized_feature_score = min(feature_score / 10, 1.0)
     
-    weighted_score = sum(
-            transaction_features[f] * weights_map.get(f, 0)
-            for f in transaction_features.index
-        )
+    ### Add rule influence to feature score (for hybrid scoring)
+    if rule_flagged:
     
-   # Combine scores: 60% model probability, 20% voting, 20% features
+        rule_boost = min(rule_severity / 10, 0.3)  
+        normalized_feature_score = min(normalized_feature_score + rule_boost, 1.0)
+    
+    #### Combining scores: 60% model probability, 20% voting, 20% features
     final_score = (0.6 * avg_probability + 
-                   0.2 * (fraud_votes / total_models) + 
+                   0.2 * (total_flags / total_models) + 
                    0.2 * normalized_feature_score)
     
     # Scale to 0-10 range
@@ -475,17 +533,28 @@ def real_time_risk_scoring(transaction, models, weights_map):
     transaction_details = {
         'Transaction_Amount': transaction.get('Transaction_Amount', 0),
         'Risk_Score': risk_score,
-        'Model_Agreement': f"{fraud_votes}/{total_models} models flagged as fraud"
+        'Model_Agreement': f"{total_flags}/{total_models} models flagged as fraud",
+        'ML_Votes': f"{fraud_votes}/{total_models}",  
+        'Rule_Engine': {
+            'triggered': rule_flagged,
+            'rules': rule_reasons,
+            'severity': rule_severity
+        },
+        'Rule_Flags': rule_reasons,  
+        'Rule_Triggered': rule_flagged,
+        'Hybrid_Score': True 
     }
     
     print(f"\n{'='*60}")
-    print(f"Transaction Risk Assessment")
+    print(f"TRANSACTION RISK ASSESSMENT (Hybrid ML + Rules)")
     print(f"{'='*60}")
     print(f"Risk Score: {risk_score}/10")
     print(f"Risk Category: {risk_category}")
-    print(f"Model Probability Average: {avg_probability:.3f}")
-    print(f"Models Flagging as Fraud: {fraud_votes}/{total_models}")
-    print(f"High-Risk Features Detected: {feature_score/2}")
+    print(f"ML Model Agreement: {fraud_votes}/{total_models} models")
+    print(f"Rule Engine: {' Triggered' if rule_flagged else ' Not Triggered'}")
+    if rule_flagged:
+        print(f"Rules Triggered: {', '.join(rule_reasons)}")
+    print(f"Final Flags: {total_flags}/{total_models}")
     print(f"Recommended Action: {recommended_action}")
     print(f"{'='*60}")
     
@@ -537,8 +606,9 @@ def generate_llm_explanation(
 
     except Exception as e:
         logger.warning(f"LLM explanation failed: {e}")
-        return None
     
+        return None
+
 def build_llm_prompt(
     risk_score,
     risk_category,
