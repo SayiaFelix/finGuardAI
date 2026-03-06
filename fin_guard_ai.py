@@ -83,6 +83,38 @@ RISK_MODELS_JOBLIB = os.path.join(CACHE_DIR, 'risk_models.joblib')
 SCALER_DATA = os.path.join(CACHE_DIR, 'scaler.pkl')
 file_path = os.path.join(DATA_DIR, "fraud_detection_data.csv")
 
+class CustomJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        return super().default(obj)
+
+# Set the custom encoder
+app.json_encoder = CustomJSONEncoder
+
+def convert_numpy_types(obj):
+    """Recursively convert numpy types to native Python types."""
+    if isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_numpy_types(item) for item in obj]
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    else:
+        return obj
+  
 def get_nairobi_time():
     """Returns current time in Africa/Nairobi timezone"""
     nairobi_tz = pytz.timezone('Africa/Nairobi')
@@ -817,7 +849,7 @@ def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURE
 
     except Exception as e:
         logger.error(f"Error updating adaptive weights: {str(e)}")
-        # Return original weights to avoid breaking the system
+       
         weights_df = load_from_pickle(IMPORTANT_FEATURES_WEIGHTS_PKL)
         return weights_df['Combined_Weight'].to_dict()
 
@@ -830,14 +862,14 @@ def layer3_lite_adjustment(
     """
     Layer 3 Lite with dynamic average based on transaction patterns
     """
-    # Use dynamic average based on amount ranges
+ 
     if avg_amount is None:
         if transaction_amount < 1000:
             avg_amount = 500  # Small transactions average
-        elif transaction_amount < 10000:
-            avg_amount = 5000  # Medium transactions average
+        elif transaction_amount < 20000:
+            avg_amount = 25000  # Medium transactions average
         else:
-            avg_amount = 50000  # Large transactions average
+            avg_amount = 50000 
     
     # Amount anomaly (0–1)
     amount_risk = min(abs(transaction_amount - avg_amount) / max(avg_amount, 1), 1)
@@ -854,12 +886,13 @@ def layer3_lite_adjustment(
     final_score = round(min(adjusted_score * 10, 10), 2)
 
     signals = {
-        "amount_risk": round(amount_risk, 3),
-        "velocity_risk": round(velocity_risk, 3),
-        "avg_amount_used": avg_amount 
+        "amount_risk": float(round(amount_risk, 3)),
+        "velocity_risk": float(round(velocity_risk, 3)),
+        "avg_amount_used": float(avg_amount) 
     }
 
-    return final_score, signals
+    return float(final_score), signals
+
 
 def log_decision(transaction_id, risk_score, risk_category, recommended_action):
     global NATIONAL_ALERT_MODE
@@ -1045,14 +1078,16 @@ def normalized_scores_endpoint():
             'status': 'error',
             'message': f'An error occurred: {str(e)}'
         }), 500
-
+        
+           
 @app.route('/v1/api/real_time_risk_score', methods=['POST'])
 def real_time_risk_score_endpoint():
     """Endpoint for real-time calculation and storage of risk scores with JSON feedback integration."""
     try:
    
         data = request.json
-        transaction_id = data.get("transaction_id") or generate_transaction_id()
+        transaction_id = generate_transaction_id()
+        # transaction_id = data.get("transaction_id") or generate_transaction_id()
         transaction_data = pd.Series(data, name=transaction_id)
         timestamp = get_nairobi_time()
 
@@ -1184,26 +1219,30 @@ def real_time_risk_score_endpoint():
         )
         
         save_to_pickle(stored_scores, REAL_TIME_RISK_SCORES_PKL)
-
+        
+        result = {
+            'transaction_id': transaction_id,
+            'timestamp': timestamp,
+            'risk_score': risk_score,
+            'risk_category': risk_category,
+            'transaction_details': transaction_details,
+            'recommended_action': recommended_action,
+            'explanations': {
+                'rule_based': rule_based_explanation,
+                'llm': llm_explanation if llm_explanation else 'LLM not available - check OpenAI API key',
+                'final': final_explanation
+            },
+            'llm_status': 'connected' if client is not None else 'disconnected',
+            'feedback_used': existing_feedback['transaction_id'] if existing_feedback else None,
+            'feedback_effect': feedback_effect
+        }
+        
+        cleaned_result = convert_numpy_types(result)
+        
         return jsonify({
             'status': 'success',
             'message': 'Risk score was calculated successfully !!!!!!!!!!!!!!!!!!!',
-            'result': {
-                'transaction_id': transaction_id,
-                'timestamp': timestamp,
-                'risk_score': risk_score,
-                'risk_category': risk_category,
-                'transaction_details': transaction_details,
-                'recommended_action': recommended_action,
-                'explanations': {
-                    'rule_based': rule_based_explanation,
-                    'llm': llm_explanation if llm_explanation else 'LLM not available - check OpenAI API key',
-                    'final': final_explanation
-                },
-                'llm_status': 'connected' if client is not None else 'disconnected',
-                'feedback_used': existing_feedback['transaction_id'] if existing_feedback else None,
-                'feedback_effect': feedback_effect
-            }
+            'result': cleaned_result
         })
 
     except Exception as e:
