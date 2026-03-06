@@ -912,6 +912,23 @@ def log_decision(transaction_id, risk_score, risk_category, recommended_action):
     with open("data/audit_log.json", "a") as f:
         f.write(json.dumps(log_entry) + "\n")
 
+def make_json_serializable(obj):
+    """Recursively convert numpy types to native Python types for JSON serialization."""
+    if isinstance(obj, dict):
+        return {key: make_json_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_json_serializable(item) for item in obj]
+    elif isinstance(obj, (np.integer, np.int64, np.int32)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float64, np.float32)):
+        return float(obj)
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    else:
+        return obj
+    
 #########################################################################################################################################
 ######################################## -------------------- APIS End Points ------------------------###################################
 #########################################################################################################################################
@@ -1188,7 +1205,7 @@ def real_time_risk_score_endpoint():
             recommended_action=recommended_action
         )
         
-        ### 3. Combined/Final explanation 
+        ###3. Combined/Final explanation 
         final_explanation = llm_explanation if llm_explanation else rule_based_explanation
         
         stored_scores[transaction_id] = {
@@ -1251,11 +1268,10 @@ def real_time_risk_score_endpoint():
             'status': 'error',
             'message': f'An error occurred: {str(e)}'
         }), 500
-        
+
 @app.route('/v1/api/transactions', methods=['POST'])
 def transactions_endpoint():
     try:
-    
         data = request.get_json() or {}
         transaction_id = data.get('transaction_id')
         
@@ -1268,7 +1284,7 @@ def transactions_endpoint():
                     'message': 'No transactions data available !!!!!'
                 }), 500
 
-            ### Checking if the transaction exists
+            ###Checking if the transaction exists
             transaction = transactions.get(transaction_id)
 
             if not transaction:
@@ -1277,25 +1293,8 @@ def transactions_endpoint():
                     'message': f'Transaction with ID {transaction_id} not found !!!!!!!!!!!!!'
                 }), 404
 
-         
-            def make_json_serializable(data):
-                """Recursively convert data to JSON-serializable types."""
-                if isinstance(data, dict):
-                    return {key: make_json_serializable(value) for key, value in data.items()}
-                elif isinstance(data, list):
-                    return [make_json_serializable(item) for item in data]
-                elif isinstance(data, (np.integer, np.floating)):
-                    return float(data) if isinstance(data, np.floating) else int(data)
-                elif isinstance(data, (int, float, str)):
-                    return data
-                elif isinstance(data, bool):
-                    return bool(data)  
-                elif data is None:
-                    return None
-                else:
-                    return str(data)  
-            
-            cleaned_transaction = make_json_serializable(transaction)
+            # Using the global convert_numpy_types function
+            cleaned_transaction = convert_numpy_types(transaction)
             
             risk_category = cleaned_transaction.get('risk_category', 'Unknown')
             risk_score = float(cleaned_transaction.get('risk_score', 0))
@@ -1329,15 +1328,16 @@ def transactions_endpoint():
                 },
                 'transaction_details': transaction_details,
                 'recommended_action': str(recommended_action),
-              
                 'explanations': cleaned_transaction.get('explanations', {}),
                 'llm_status': cleaned_transaction.get('llm_status', 'disconnected'),
                 'feedback_effect': cleaned_transaction.get('feedback_effect')
             }
-            return jsonify(response_data), 200
+            
+            #Using convert_numpy_types again to ensure everything is serializable
+            final_response = convert_numpy_types(response_data)
+            return jsonify(final_response), 200
             
         else:
-    
             page = data.get('page', 1)
             size = data.get('size', 10)
             
@@ -1366,31 +1366,35 @@ def transactions_endpoint():
                 
             tx_list = []
             for tx_id, tx_data in transactions.items():
+               
+                cleaned_tx_data = convert_numpy_types(tx_data)
+                
                 tx_list.append({
                     'transaction_id': tx_id,
-                    'timestamp': tx_data.get('timestamp', ''),
-                    'risk_score': tx_data.get('risk_score', 0),
-                    'risk_category': tx_data.get('risk_category', ''),
-                    'transaction_details': tx_data.get('transaction_details', {}),
-                    'recommended_action': tx_data.get('recommended_action', ''),
-                    'explanations': tx_data.get('explanations', {}),
-                    'llm_status': tx_data.get('llm_status', 'disconnected'),
-                    'model_version': tx_data.get('model_version', MODEL_VERSION),
-                    'threshold_used': tx_data.get('threshold_used', get_active_threshold()),
-                    'national_alert_mode': tx_data.get('national_alert_mode', NATIONAL_ALERT_MODE),
-                    'feedback_used': tx_data.get('feedback_used'),
-                    'feedback_effect': tx_data.get('feedback_effect')
+                    'timestamp': cleaned_tx_data.get('timestamp', ''),
+                    'risk_score': cleaned_tx_data.get('risk_score', 0),
+                    'risk_category': cleaned_tx_data.get('risk_category', ''),
+                    'transaction_details': cleaned_tx_data.get('transaction_details', {}),
+                    'recommended_action': cleaned_tx_data.get('recommended_action', ''),
+                    'explanations': cleaned_tx_data.get('explanations', {}),
+                    'llm_status': cleaned_tx_data.get('llm_status', 'disconnected'),
+                    'model_version': cleaned_tx_data.get('model_version', MODEL_VERSION),
+                    'threshold_used': cleaned_tx_data.get('threshold_used', get_active_threshold()),
+                    'national_alert_mode': cleaned_tx_data.get('national_alert_mode', NATIONAL_ALERT_MODE),
+                    'feedback_used': cleaned_tx_data.get('feedback_used'),
+                    'feedback_effect': cleaned_tx_data.get('feedback_effect')
                 })
 
-            
+            #Sorting by timestamp (latest first)
             tx_list.sort(key=lambda x: x['timestamp'], reverse=True)
+            
             total = len(tx_list)
             start_idx = (page - 1) * size
             end_idx = start_idx + size
             
             paginated = tx_list[start_idx:end_idx]
             
-            return jsonify({
+            response_data = {
                 'status': 'success',
                 'message': f'Loaded {len(paginated)} of {total} transactions !!!!!!!!!!!!',
                 'transactions': paginated,
@@ -1400,7 +1404,11 @@ def transactions_endpoint():
                     'total': total,
                     'has_more': end_idx < total
                 }
-            }), 200
+            }
+            
+            #Converting the entire response
+            final_response = convert_numpy_types(response_data)
+            return jsonify(final_response), 200
 
     except Exception as e:
         logger.error(f"Error in transactions endpoint: {str(e)}")
@@ -1408,7 +1416,7 @@ def transactions_endpoint():
             'status': 'error',
             'message': f'Internal server error: {str(e)}'
         }), 500
-       
+             
 @app.route('/v1/api/fraud_history', methods=['POST'])
 def get_fraud_history():
     """
