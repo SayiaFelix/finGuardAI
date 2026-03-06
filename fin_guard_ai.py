@@ -486,7 +486,7 @@ def real_time_risk_scoring(transaction, models, weights_map):
     ### Rule 4: Amount exceeds threshold (KES 100,000)
     if transaction.get('Transaction_Amount', 0) > 100000:
         rule_flagged = True
-        rule_reasons.append("Amount exceeds KES 10,000")
+        rule_reasons.append("Amount exceeds KES 100,000")
         rule_severity += 1
     
     ## Rule 5: High transaction frequency (velocity check)
@@ -864,7 +864,7 @@ def layer3_lite_adjustment(
     """
  
     if avg_amount is None:
-        if transaction_amount < 1000:
+        if transaction_amount < 2000:
             avg_amount = 500  # Small transactions average
         elif transaction_amount < 20000:
             avg_amount = 25000  # Medium transactions average
