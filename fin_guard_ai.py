@@ -549,13 +549,13 @@ def real_time_risk_scoring(transaction, models, weights_map):
     
     threshold = get_active_threshold()
 
-    if risk_score >= 7:
+    if risk_score >= 8.0:
         risk_category = "Critical Fraud Risk"
         recommended_action = "Block transaction immediately and notify authorities."
     elif risk_score >= threshold:
         risk_category = "High Potential Fraud"
         recommended_action = "Flag for review and escalate to fraud investigation team."
-    elif risk_score >= 3:
+    elif risk_score >= 3.0:
         risk_category = "Medium Risk"
         recommended_action = "Require additional verification (2FA)."
     else:
@@ -653,7 +653,7 @@ def build_llm_prompt(
         rules = transaction_details.get('Rule_Flags', [])
         rule_info = f"\n- Risk Patterns Detected: {', '.join(rules)}"
     
-    # Mapping risk category to user-friendly terms
+    #Mapping risk category to user-friendly terms
     if "Critical" in risk_category:
         risk_level = "critical"
         action_urgency = "immediately"
@@ -1145,11 +1145,11 @@ def real_time_risk_score_endpoint():
             
             threshold = get_active_threshold()
 
-            if risk_score >= 7:
+            if risk_score >= 8.0:
                 risk_category = "Critical Fraud Risk"
             elif risk_score >= threshold:
                 risk_category = "High Potential Fraud"
-            elif risk_score >= 3:
+            elif risk_score >= 3.0:
                 risk_category = "Medium Risk"
             else:
                 risk_category = "Low Potential Fraud"
