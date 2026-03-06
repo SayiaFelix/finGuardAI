@@ -1417,6 +1417,71 @@ def transactions_endpoint():
             'message': f'Internal server error: {str(e)}'
         }), 500
 
+@app.route('/v1/api/transactions_delete', methods=['POST'])
+def delete_transaction():
+    """
+    Delete a specific transaction by ID (ID provided in JSON body).
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': 'No JSON data provided.'
+            }), 400
+            
+        transaction_id = data.get('transaction_id')
+        
+        if not transaction_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'transaction_id is required in the request body.'
+            }), 400
+        
+        transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+        
+        if not transactions:
+            return jsonify({
+                'status': 'error',
+                'message': 'No transactions found.'
+            }), 404
+        
+        # Checking if transaction exists
+        if transaction_id not in transactions:
+            logger.warning(f"Transaction {transaction_id} not found in storage")
+
+            return jsonify({
+                'status': 'error',
+                'message': f'Transaction with ID {transaction_id} not found.'
+            }), 404
+        
+        deleted_transaction = transactions.pop(transaction_id)
+
+        save_to_pickle(transactions, REAL_TIME_RISK_SCORES_PKL)
+        
+        verify_transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+     
+        logger.info(f"Transaction {transaction_id} deleted successfully")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Transaction {transaction_id} deleted successfully.',
+            'deleted_transaction': {
+                'transaction_id': transaction_id,
+                'risk_score': deleted_transaction.get('risk_score'),
+                'risk_category': deleted_transaction.get('risk_category')
+            },
+            'remaining_count': len(transactions)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error deleting transaction: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Internal server error: {str(e)}'
+        }), 500
+
 @app.route('/v1/api/fraud_history', methods=['POST'])
 def get_fraud_history():
     """
