@@ -1416,7 +1416,7 @@ def transactions_endpoint():
             'status': 'error',
             'message': f'Internal server error: {str(e)}'
         }), 500
-             
+
 @app.route('/v1/api/fraud_history', methods=['POST'])
 def get_fraud_history():
     """
@@ -1458,7 +1458,7 @@ def get_fraud_history():
                 }
             }), 200
 
-        ### Filter transactions that are flagged as High Potential Fraud OR Critical Fraud Risk
+        ###Filter transactions that are flagged as High Potential Fraud OR Critical Fraud Risk
         fraud_transactions = {}
         for tx_id, tx_data in transactions.items():
             risk_category = tx_data.get('risk_category', '')
@@ -1482,16 +1482,19 @@ def get_fraud_history():
 
         fraud_list = []
         for tx_id, tx_data in fraud_transactions.items():
+            # Convert numpy types for each transaction
+            cleaned_tx_data = convert_numpy_types(tx_data)
+            
             fraud_list.append({
                 'transaction_id': tx_id,
-                'timestamp': tx_data.get('timestamp', ''),
-                'risk_score': tx_data.get('risk_score', 0),
-                'risk_category': tx_data.get('risk_category', ''),
-                'transaction_details': tx_data.get('transaction_details', {}),
-                'recommended_action': tx_data.get('recommended_action', '')
+                'timestamp': cleaned_tx_data.get('timestamp', ''),
+                'risk_score': cleaned_tx_data.get('risk_score', 0),
+                'risk_category': cleaned_tx_data.get('risk_category', ''),
+                'transaction_details': cleaned_tx_data.get('transaction_details', {}),
+                'recommended_action': cleaned_tx_data.get('recommended_action', '')
             })
 
-        # Sort by risk score (highest first), then by timestamp (most recent first)
+        #Sorting by risk score 
         fraud_list.sort(key=lambda x: (-x['risk_score'], x['timestamp']), reverse=True)
 
         total = len(fraud_list)
@@ -1503,8 +1506,9 @@ def get_fraud_history():
         start_idx = (page - 1) * size
         end_idx = start_idx + size
         paginated_results = fraud_list[start_idx:end_idx]
-
-        return jsonify({
+        
+        ###Convert the entire response
+        response_data = {
             'status': 'success',
             'message': f'Found {total} fraud transactions !!!!!!!!!!!',
             'fraud_transactions': paginated_results,
@@ -1516,15 +1520,18 @@ def get_fraud_history():
                 'has_next': page < total_pages,
                 'has_prev': page > 1
             }
-        }), 200
+        }
+        
+        final_response = convert_numpy_types(response_data)
+        return jsonify(final_response), 200
 
     except Exception as e:
         logger.error(f"Error in fraud-history endpoint: {str(e)}")
         return jsonify({
             'status': 'error',
             'message': f'Internal server error: {str(e)}'
-        }), 500        
-
+        }), 500
+                
 @app.route("/v1/api/fraud_feedback", methods=["POST"])
 def fraud_feedback():
     """
