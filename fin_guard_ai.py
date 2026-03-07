@@ -79,6 +79,7 @@ IMPORTANT_FEATURES_PKL = os.path.join(CACHE_DIR, 'important_features.pkl')
 NORMALIZED_RISK_SCORES_PKL = os.path.join(CACHE_DIR, 'normalized_risk_score.pkl')
 REAL_TIME_RISK_SCORES_PKL = os.path.join(CACHE_DIR, 'real_time_risk_score.pkl')
 RISK_MODELS_JOBLIB = os.path.join(CACHE_DIR, 'risk_models.joblib')
+MODEL_METRICS_PKL = os.path.join(CACHE_DIR, 'model_metrics.pkl')
 
 SCALER_DATA = os.path.join(CACHE_DIR, 'scaler.pkl')
 file_path = os.path.join(DATA_DIR, "fraud_detection_data.csv")
@@ -128,7 +129,7 @@ MODEL_VERSION = "v1.0.0-stage1"
 SOVEREIGN_MODE = True 
 NATIONAL_ALERT_MODE = False
 
-DEFAULT_THRESHOLD = 5.0
+DEFAULT_THRESHOLD = 6.0
 ALERT_THRESHOLD = 4.0
 
 def get_active_threshold():
@@ -1634,12 +1635,30 @@ def fraud_feedback():
 @app.route('/v1/api/model_metrics', methods=['GET'])
 def model_metrics_endpoint():
     try:
+        # Checking if metrics pickle already exists
+        if os.path.exists(MODEL_METRICS_PKL):
+         
+            metrics_data = load_from_pickle(MODEL_METRICS_PKL)
+            logger.info("Model metrics loaded from pickle file")
+            
+            return jsonify({
+                "status": "success",
+                "message": "Model metrics loaded from cache successfully !!!!!!!!!!!!",
+                "model_version": MODEL_VERSION,
+                "national_alert_mode": NATIONAL_ALERT_MODE,
+                "threshold": get_active_threshold(),
+                "metrics": metrics_data,
+                "cached": True
+            })
+        
+        logger.info("Model metrics pickle not found. Calculating metrics...")
+        
+        #data and load models
         X_train, X_test, y_train, y_test = prepare_and_split_data()
         models = load_model_from_JobLib(RISK_MODELS_JOBLIB)
 
         metrics = {}
-
-     
+        
         for name, model in models.items():
             y_pred = model.predict(X_test)
             y_prob = model.predict_proba(X_test)[:, 1]
@@ -1651,21 +1670,27 @@ def model_metrics_endpoint():
                 "f1_score": round(f1_score(y_test, y_pred), 4),
                 "roc_auc": round(roc_auc_score(y_test, y_prob), 4)
             }
+        
+        save_to_pickle(metrics, MODEL_METRICS_PKL)
+        logger.info(f"Model metrics saved to pickle file: {MODEL_METRICS_PKL}")
 
         return jsonify({
             "status": "success",
+            "message": "Model metrics calculated and saved successfully !!!!!!!!!!!!",
             "model_version": MODEL_VERSION,
             "national_alert_mode": NATIONAL_ALERT_MODE,
             "threshold": get_active_threshold(),
-            "metrics": metrics
+            "metrics": metrics,
+            "cached": False
         })
 
     except Exception as e:
+        logger.error(f"Error in model metrics endpoint: {str(e)}")
         return jsonify({
             "status": "error",
             "message": str(e)
         }), 500
-    
+ 
 @app.route('/v1/api/system/alert_mode', methods=['POST'])
 def toggle_alert_mode():
     global NATIONAL_ALERT_MODE
