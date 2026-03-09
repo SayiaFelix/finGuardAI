@@ -1431,7 +1431,165 @@ def transactions_endpoint():
             'message': f'Internal server error: {str(e)}'
         }), 500
 
+@app.route('/v1/api/transactions/related', methods=['POST'])
+def get_related_transactions():
+    try:
 
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': 'No JSON data provided.'
+            }), 400
+            
+        transaction_id = data.get('transaction_id')
+        
+        if not transaction_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'transaction_id is required in the request body.'
+            }), 400
+    
+        transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+        
+        if not transactions:
+            return jsonify({
+                'status': 'success',
+                'message': 'No transactions found',
+                'related_transactions': []
+            }), 200
+        
+        #target transaction exists
+        if transaction_id not in transactions:
+            return jsonify({
+                'status': 'error',
+                'message': f'Transaction with ID {transaction_id} not found'
+            }), 404
+        
+        #target transaction
+        target_tx = transactions[transaction_id]
+        target_details = target_tx.get('transaction_details', {})
+        target_customer = target_tx.get('customer_info', {})
+        
+        #key identifiers for relationship matching
+        target_ip = target_details.get('IP_Address')
+        target_amount = target_details.get('Transaction_Amount', 0)
+        target_customer_id = target_customer.get('customer_id')
+        
+        #extract device type from features
+        target_device_unknown = target_details.get('Device_Type_Unknown_Device', 0)
+        target_device_iphone = target_details.get('Device_Type_iPhone', 0)
+        target_device_android = target_details.get('Device_Type_Android', 0)
+        target_device_mac = target_details.get('Device_Type_MacBook', 0)
+        
+        related = []
+        
+        for tx_id, tx_data in transactions.items():
+            if tx_id == transaction_id:
+                continue
+                
+            tx_details = tx_data.get('transaction_details', {})
+            tx_customer = tx_data.get('customer_info', {})
+            
+            relationship_score = 0
+            relationship_reasons = []
+            
+            #customer ID (strongest relationship)
+            if target_customer_id and tx_customer.get('customer_id') == target_customer_id:
+                relationship_score += 10
+                relationship_reasons.append('same_customer')
+            
+            #IP address
+            if target_ip and tx_details.get('IP_Address') == target_ip:
+                relationship_score += 8
+                relationship_reasons.append('same_ip')
+            
+            #device type
+            if (target_device_unknown and tx_details.get('Device_Type_Unknown_Device', 0) == 1):
+                relationship_score += 7
+                relationship_reasons.append('same_device_type')
+            elif (target_device_iphone and tx_details.get('Device_Type_iPhone', 0) == 1):
+                relationship_score += 7
+                relationship_reasons.append('same_device_type')
+            elif (target_device_android and tx_details.get('Device_Type_Android', 0) == 1):
+                relationship_score += 7
+                relationship_reasons.append('same_device_type')
+            elif (target_device_mac and tx_details.get('Device_Type_MacBook', 0) == 1):
+                relationship_score += 7
+                relationship_reasons.append('same_device_type')
+            
+            #amount (within 30%)
+            tx_amount = tx_details.get('Transaction_Amount', 0)
+            if target_amount > 0 and tx_amount > 0:
+                amount_diff = abs(tx_amount - target_amount) / max(target_amount, 1)
+                if amount_diff < 0.3:
+                    relationship_score += 5
+                    relationship_reasons.append('similar_amount')
+            
+            #location type
+            if (target_details.get('Transaction_Location_International', 0) == 1 and 
+                tx_details.get('Transaction_Location_International', 0) == 1):
+                relationship_score += 4
+                relationship_reasons.append('same_location_type')
+            elif (target_details.get('Transaction_Location_Local', 0) == 1 and 
+                  tx_details.get('Transaction_Location_Local', 0) == 1):
+                relationship_score += 4
+                relationship_reasons.append('same_location_type')
+            
+            #transaction type
+            if (target_details.get('Transaction_Type_Online', 0) == 1 and 
+                tx_details.get('Transaction_Type_Online', 0) == 1):
+                relationship_score += 3
+                relationship_reasons.append('same_channel')
+            elif (target_details.get('Transaction_Type_POS', 0) == 1 and 
+                  tx_details.get('Transaction_Type_POS', 0) == 1):
+                relationship_score += 3
+                relationship_reasons.append('same_channel')
+            
+            # If relationship score is high enough, include it
+            if relationship_score >= 5:
+                #relationship strength
+                if relationship_score >= 15:
+                    strength = 'strong'
+                elif relationship_score >= 10:
+                    strength = 'medium'
+                else:
+                    strength = 'weak'
+                
+    
+                tx_data_clean = convert_numpy_types(tx_data)
+                
+                related.append({
+                    'transaction_id': tx_id,
+                    'timestamp': tx_data_clean.get('timestamp', ''),
+                    'risk_score': tx_data_clean.get('risk_score', 0),
+                    'risk_category': tx_data_clean.get('risk_category', ''),
+                    'amount': tx_details.get('Transaction_Amount', 0),
+                    'customer_info': tx_customer,
+                    'relationship': {
+                        'score': relationship_score,
+                        'strength': strength,
+                        'reasons': relationship_reasons
+                    }
+                })
+        
+        # Sort by relationship score (highest first) and then by timestamp
+        related.sort(key=lambda x: (-x['relationship']['score'], x['timestamp']), reverse=True)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Found {len(related)} related transactions',
+            'related_transactions': related[:10]  
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error fetching related transactions: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Internal server error: {str(e)}'
+        }), 500
+        
 @app.route('/v1/api/transactions_delete', methods=['POST'])
 def delete_transaction():
     """
