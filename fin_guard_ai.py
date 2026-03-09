@@ -1097,7 +1097,6 @@ def normalized_scores_endpoint():
             'message': f'An error occurred: {str(e)}'
         }), 500
         
-           
 @app.route('/v1/api/real_time_risk_score', methods=['POST'])
 def real_time_risk_score_endpoint():
     """Endpoint for real-time calculation and storage of risk scores with JSON feedback integration."""
@@ -1176,7 +1175,7 @@ def real_time_risk_score_endpoint():
                 transaction_data, models, adapted_weights
             )
             
-            # Update with adapted values
+            #Update with adapted values
             transaction_details = adapted_details
             recommended_action = adapted_action
 
@@ -1209,13 +1208,23 @@ def real_time_risk_score_endpoint():
         ###3. Combined/Final explanation 
         final_explanation = llm_explanation if llm_explanation else rule_based_explanation
         
+        #Extracting customer information if provided
+        customer_info = {
+            'customer_id': data.get('customer_id', f"CUST-{transaction_id[1:9]}"),
+            'customer_name': data.get('customer_name', f"Customer {transaction_id[1:9]}"),
+            'customer_email': data.get('customer_email', ''),
+            'customer_phone': data.get('customer_phone', ''),
+            'account_age_days': data.get('account_age_days', 0),
+            'avg_transaction_amount': data.get('avg_transaction_amount', 0)
+        }
+        
         stored_scores[transaction_id] = {
             'timestamp': timestamp,
             'risk_score': risk_score,
             'risk_category': risk_category,
             'transaction_details': transaction_details,
             'recommended_action': recommended_action,
-            
+            'customer_info': customer_info,
             'explanations': {
                 'rule_based': rule_based_explanation,
                 'llm': llm_explanation,
@@ -1244,6 +1253,7 @@ def real_time_risk_score_endpoint():
             'risk_score': risk_score,
             'risk_category': risk_category,
             'transaction_details': transaction_details,
+            'customer_info': customer_info,
             'recommended_action': recommended_action,
             'explanations': {
                 'rule_based': rule_based_explanation,
@@ -1302,6 +1312,7 @@ def transactions_endpoint():
             timestamp = cleaned_transaction.get('timestamp', '')
             transaction_details = cleaned_transaction.get('transaction_details', {})
             recommended_action = cleaned_transaction.get('recommended_action', '')
+            customer_info = cleaned_transaction.get('customer_info', {})
             
             if risk_category in ['Critical Fraud Risk', 'High Potential Fraud']:
                 risk_level = 'HIGH_RISK'
@@ -1314,7 +1325,8 @@ def transactions_endpoint():
                 status_message = f'Transaction ID {transaction_id} has low risk !!!!!!!!!!!!'
 
             active_threshold = get_active_threshold()
-           
+            
+            
             response_data = {
                 'status': 'success',
                 'message': status_message,
@@ -1328,6 +1340,7 @@ def transactions_endpoint():
                     'is_high_risk': bool(risk_score >= active_threshold)
                 },
                 'transaction_details': transaction_details,
+                'customer_info': customer_info,
                 'recommended_action': str(recommended_action),
                 'explanations': cleaned_transaction.get('explanations', {}),
                 'llm_status': cleaned_transaction.get('llm_status', 'disconnected'),
@@ -1417,6 +1430,7 @@ def transactions_endpoint():
             'status': 'error',
             'message': f'Internal server error: {str(e)}'
         }), 500
+
 
 @app.route('/v1/api/transactions_delete', methods=['POST'])
 def delete_transaction():
