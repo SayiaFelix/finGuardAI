@@ -1573,6 +1573,7 @@ def get_related_transactions():
                     'risk_category': tx_data_clean.get('risk_category', ''),
                     'amount': tx_details.get('Transaction_Amount', 0),
                     'customer_info': tx_customer,
+                    'status_info': tx_data_clean.get('status', {}),
                     'relationship': {
                         'score': relationship_score,
                         'strength': strength,
