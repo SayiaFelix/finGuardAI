@@ -1347,7 +1347,8 @@ def transactions_endpoint():
                 'recommended_action': str(recommended_action),
                 'explanations': cleaned_transaction.get('explanations', {}),
                 'llm_status': cleaned_transaction.get('llm_status', 'disconnected'),
-                'feedback_effect': cleaned_transaction.get('feedback_effect')
+                'feedback_effect': cleaned_transaction.get('feedback_effect'),
+                'status_info': cleaned_transaction.get('status', {}) 
                 
             }
             
@@ -1401,7 +1402,8 @@ def transactions_endpoint():
                     'national_alert_mode': cleaned_tx_data.get('national_alert_mode', NATIONAL_ALERT_MODE),
                     'feedback_used': cleaned_tx_data.get('feedback_used'),
                     'feedback_effect': cleaned_tx_data.get('feedback_effect'),
-                    'customer_info': cleaned_tx_data.get('customer_info', {})
+                    'customer_info': cleaned_tx_data.get('customer_info', {}),
+                    'status_info': cleaned_tx_data.get('status', {}) 
                 })
 
             #Sorting by timestamp
@@ -1736,6 +1738,7 @@ def get_fraud_history():
                 'recommended_action': cleaned_tx_data.get('recommended_action', ''),
                 'explanations': cleaned_tx_data.get('explanations', {}),
                 'customer_info': cleaned_tx_data.get('customer_info', {}),
+                'status_info': cleaned_tx_data.get('status', {}) 
                 
             })
 
