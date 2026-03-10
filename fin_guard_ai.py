@@ -1348,6 +1348,7 @@ def transactions_endpoint():
                 'explanations': cleaned_transaction.get('explanations', {}),
                 'llm_status': cleaned_transaction.get('llm_status', 'disconnected'),
                 'feedback_effect': cleaned_transaction.get('feedback_effect')
+                
             }
             
             #Using convert_numpy_types again to ensure everything is serializable
@@ -1399,10 +1400,11 @@ def transactions_endpoint():
                     'threshold_used': cleaned_tx_data.get('threshold_used', get_active_threshold()),
                     'national_alert_mode': cleaned_tx_data.get('national_alert_mode', NATIONAL_ALERT_MODE),
                     'feedback_used': cleaned_tx_data.get('feedback_used'),
-                    'feedback_effect': cleaned_tx_data.get('feedback_effect')
+                    'feedback_effect': cleaned_tx_data.get('feedback_effect'),
+                    'customer_info': cleaned_tx_data.get('customer_info', {})
                 })
 
-            #Sorting by timestamp (latest first)
+            #Sorting by timestamp
             tx_list.sort(key=lambda x: x['timestamp'], reverse=True)
             
             total = len(tx_list)
