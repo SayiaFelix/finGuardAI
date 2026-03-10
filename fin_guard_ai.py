@@ -606,9 +606,12 @@ def generate_llm_explanation(
     recommended_action
 ):
     
-    # if SOVEREIGN_MODE:
-    #     logger.info("Sovereign mode active - LLM disabled")
-    #     return None
+    global SOVEREIGN_MODE
+    
+    #sovereign mode first
+    if SOVEREIGN_MODE:
+        logger.info("Sovereign mode active - LLM disabled for national independence")
+        return None
 
     if client is None:
         logger.info("LLM disabled: GROQ_API_KEY not set")
@@ -1460,7 +1463,6 @@ def get_related_transactions():
                 'related_transactions': []
             }), 200
         
-        #target transaction exists
         if transaction_id not in transactions:
             return jsonify({
                 'status': 'error',
@@ -1729,7 +1731,10 @@ def get_fraud_history():
                 'risk_score': cleaned_tx_data.get('risk_score', 0),
                 'risk_category': cleaned_tx_data.get('risk_category', ''),
                 'transaction_details': cleaned_tx_data.get('transaction_details', {}),
-                'recommended_action': cleaned_tx_data.get('recommended_action', '')
+                'recommended_action': cleaned_tx_data.get('recommended_action', ''),
+                'explanations': cleaned_tx_data.get('explanations', {}),
+                'customer_info': cleaned_tx_data.get('customer_info', {}),
+                
             })
 
         #Sorting by risk score 
@@ -1878,6 +1883,31 @@ def toggle_alert_mode():
         "active_threshold": get_active_threshold()
     })
 
+@app.route('/v1/api/system/sovereign_mode', methods=['POST'])
+def toggle_sovereign_mode():
+
+    global SOVEREIGN_MODE
+    data = request.get_json()
+    mode = data.get("enable", False)
+
+    SOVEREIGN_MODE = bool(mode)
+
+    return jsonify({
+        "status": "success",
+        "message": f"Sovereign Mode {'enabled' if SOVEREIGN_MODE else 'disabled'} successfully !!!!!!!!!!!!",
+        "sovereign_mode": SOVEREIGN_MODE,
+        "llm_status": "disabled" if SOVEREIGN_MODE else "enabled"
+    }), 200
+
+@app.route('/v1/api/system/sovereign_mode', methods=['GET'])
+def get_sovereign_mode():
+    """Get current sovereign mode status"""
+    return jsonify({
+        "status": "success",
+        "sovereign_mode": SOVEREIGN_MODE,
+        "llm_status": "disabled" if SOVEREIGN_MODE else "enabled"
+    }), 200
+    
 @app.route('/v1/api/audit_log', methods=['GET'])
 def get_audit_log():
     """Endpoint for transparency - show recent decisions"""
