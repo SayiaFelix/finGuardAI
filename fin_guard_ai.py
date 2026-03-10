@@ -1811,6 +1811,152 @@ def fraud_feedback():
         logger.error(f"Error in fraud feedback endpoint: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/v1/api/transactions/status', methods=['POST'])
+def update_transaction_status():
+    """
+    Update the status of a transaction (Open, Investigating, Resolved, False Positive)
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': 'No JSON data provided.'
+            }), 400
+            
+        transaction_id = data.get('transaction_id')
+        new_status = data.get('status')
+        notes = data.get('notes', '')
+        action_by = data.get('action_by', 'System')
+        
+        if not transaction_id or not new_status:
+            return jsonify({
+                'status': 'error',
+                'message': 'transaction_id and status are required.'
+            }), 400
+        
+        ##Validate status
+        valid_statuses = ['Open', 'Investigating', 'Resolved', 'False Positive']
+        if new_status not in valid_statuses:
+            return jsonify({
+                'status': 'error',
+                'message': f'Invalid status. Must be one of: {", ".join(valid_statuses)}'
+            }), 400
+        
+        transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+        
+        if not transactions:
+            return jsonify({
+                'status': 'error',
+                'message': 'No transactions found.'
+            }), 404
+        
+        # Checking if transaction exists
+        if transaction_id not in transactions:
+            return jsonify({
+                'status': 'error',
+                'message': f'Transaction with ID {transaction_id} not found.'
+            }), 404
+        
+        if 'status' not in transactions[transaction_id]:
+            transactions[transaction_id]['status'] = {}
+        
+        # status history
+        old_status = transactions[transaction_id].get('status', {}).get('current', 'Open')
+        
+        transactions[transaction_id]['status'] = {
+            'current': new_status,
+            'history': transactions[transaction_id].get('status', {}).get('history', []) + [{
+                'from': old_status,
+                'to': new_status,
+                'timestamp': get_nairobi_time(),
+                'action_by': action_by,
+                'notes': notes
+            }],
+            'last_updated': get_nairobi_time(),
+            'updated_by': action_by
+        }
+        
+        if new_status in ['Resolved', 'False Positive']:
+            transactions[transaction_id]['resolution'] = {
+                'resolved_by': action_by,
+                'resolved_at': get_nairobi_time(),
+                'notes': notes,
+                'action': 'Blocked' if new_status == 'Resolved' else 'Approved'
+            }
+        
+        save_to_pickle(transactions, REAL_TIME_RISK_SCORES_PKL)
+        
+        logger.info(f"Transaction {transaction_id} status updated from {old_status} to {new_status} by {action_by}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Transaction status updated to {new_status}',
+            'transaction_id': transaction_id,
+            'new_status': new_status,
+            'old_status': old_status,
+            'timestamp': get_nairobi_time()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error updating transaction status: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Internal server error: {str(e)}'
+        }), 500
+
+@app.route('/v1/api/get_transactions/status', methods=['POST'])
+def get_transaction_status():
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': 'No JSON data provided.'
+            }), 400
+            
+        transaction_id = data.get('transaction_id')
+        
+        if not transaction_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'transaction_id is required in the request body.'
+            }), 400
+        
+        transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+        
+        if not transactions or transaction_id not in transactions:
+            return jsonify({
+                'status': 'error',
+                'message': f'Transaction with ID {transaction_id} not found.'
+            }), 404
+        
+        #status info
+        status_info = transactions[transaction_id].get('status', {
+            'current': 'Open',
+            'history': [],
+            'last_updated': transactions[transaction_id].get('timestamp')
+        })
+    
+        status_info_clean = convert_numpy_types(status_info)
+        
+        return jsonify({
+            'status': 'success',
+            'transaction_id': transaction_id,
+            'current_status': status_info_clean.get('current', 'Open'),
+            'history': status_info_clean.get('history', []),
+            'last_updated': status_info_clean.get('last_updated', transactions[transaction_id].get('timestamp'))
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error fetching transaction status: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Internal server error: {str(e)}'
+        }), 500
+    
 @app.route('/v1/api/model_metrics', methods=['GET'])
 def model_metrics_endpoint():
     try:
