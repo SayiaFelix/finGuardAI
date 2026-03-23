@@ -27,6 +27,11 @@ from sklearn.preprocessing import RobustScaler, StandardScaler, OneHotEncoder
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier, BaggingClassifier
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 
+
+from database.db_manager import save_transaction_to_db, save_feedback_to_db
+from database.db_manager import SessionLocal, Transaction
+from sqlalchemy import desc
+
 from datetime import datetime
 import pytz 
 
@@ -124,7 +129,7 @@ def get_nairobi_time():
     nairobi_time = utc_now.astimezone(nairobi_tz)
     return nairobi_time.isoformat()
 
-MODEL_VERSION = "v1.0.0-stage1"
+MODEL_VERSION = "v1.0.0"
 
 SOVEREIGN_MODE = True 
 NATIONAL_ALERT_MODE = False
@@ -1250,6 +1255,13 @@ def real_time_risk_score_endpoint():
         
         save_to_pickle(stored_scores, REAL_TIME_RISK_SCORES_PKL)
         
+        # Save to SQLite (dual storage)
+        db_transaction_data = stored_scores[transaction_id].copy()
+        db_transaction_data['transaction_id'] = transaction_id
+        save_transaction_to_db(db_transaction_data)
+        logger.info(f"Transaction {transaction_id} saved to database successfully !!!!!!!!!!!!")
+        
+        
         result = {
             'transaction_id': transaction_id,
             'timestamp': timestamp,
@@ -1808,6 +1820,9 @@ def fraud_feedback():
 
         store_feedback(transaction_id, feedback, signals)
         adapt_weights(signals, feedback)
+        
+        # Save to SQLite
+        save_feedback_to_db(transaction_id, feedback, signals)
 
         return jsonify({"message": f"Feedback for transaction {transaction_id} processed successfully !!!!!!"}), 200
 
@@ -2137,6 +2152,76 @@ def bias_mitigation():
         "last_review": get_nairobi_time()
     })
     
+@app.route('/v1/api/db/transactions', methods=['GET'])
+def get_transactions_from_db():
+    """Get transactions from SQLite database"""
+
+    try:
+        db = SessionLocal()
+        page = request.args.get('page', 1, type=int)
+        size = request.args.get('size', 10, type=int)
+        
+        transactions = db.query(Transaction)\
+            .order_by(desc(Transaction.timestamp))\
+            .offset((page - 1) * size)\
+            .limit(size)\
+            .all()
+        
+        total = db.query(Transaction).count()
+        
+        result = []
+        for tx in transactions:
+            result.append({
+                'transaction_id': tx.id,
+                'timestamp': tx.timestamp.isoformat(),
+                'risk_score': tx.risk_score,
+                'risk_category': tx.risk_category,
+                'recommended_action': tx.recommended_action,
+                'transaction_details': tx.transaction_details,
+                'customer_info': tx.customer_info,
+                'status': tx.status
+            })
+        
+        db.close()
+        
+        return jsonify({
+            'status': 'success',
+            'transactions': result,
+            'total': total,
+            'page': page,
+            'size': size
+        })
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/v1/api/db/stats', methods=['GET'])
+def get_db_stats():
+    """Get statistics from database"""
+    try:
+        db = SessionLocal()
+        
+        total = db.query(Transaction).count()
+        high_risk = db.query(Transaction).filter(
+            Transaction.risk_category.in_(['High Potential Fraud', 'Critical Fraud Risk'])
+        ).count()
+        pending = db.query(Transaction).filter(Transaction.status == 'Open').count()
+        
+        db.close()
+        
+        return jsonify({
+            'status': 'success',
+            'stats': {
+                'total_transactions': total,
+                'high_risk_transactions': high_risk,
+                'pending_review': pending,
+                'fraud_rate': round(high_risk / total * 100, 2) if total > 0 else 0
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @app.route('/v1/api/test', methods=['GET'])
 def test():
     return "Testing endpoint, fraud detection apis working effectively !!!!!!!!!!!!"

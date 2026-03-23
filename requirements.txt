@@ -9,3 +9,9 @@ scikit-learn
 shap
 joblib
 gunicorn
+psycopg2-binary
+sqlalchemy
+PyJWT
+bcrypt
+python-dotenv
+pytz
