@@ -1304,7 +1304,7 @@ def real_time_risk_score_endpoint(current_user):
 
 @app.route('/v1/api/transactions', methods=['POST'])
 @token_required
-def transactions_endpoint():
+def transactions_endpoint(current_user):
     try:
         data = request.get_json() or {}
         transaction_id = data.get('transaction_id')
@@ -1460,7 +1460,7 @@ def transactions_endpoint():
 
 @app.route('/v1/api/transactions/related', methods=['POST'])
 @token_required
-def get_related_transactions():
+def get_related_transactions(current_user):
     try:
 
         data = request.get_json()
@@ -1620,7 +1620,7 @@ def get_related_transactions():
         
 @app.route('/v1/api/transactions_delete', methods=['POST'])
 @token_required
-def delete_transaction():
+def delete_transaction(current_user):
     """
     Delete a specific transaction by ID (ID provided in JSON body).
     """
@@ -1686,7 +1686,7 @@ def delete_transaction():
 
 @app.route('/v1/api/fraud_history', methods=['POST'])
 @token_required
-def get_fraud_history():
+def get_fraud_history(current_user):
     """
     Endpoint to get all transactions flagged as High Potential Fraud OR Critical Fraud Risk.
     """
@@ -1806,7 +1806,7 @@ def get_fraud_history():
                 
 @app.route("/v1/api/fraud_feedback", methods=["POST"])
 @token_required
-def fraud_feedback():
+def fraud_feedback(current_user):
     """
     Endpoint to handle fraud feedback from users or analysts.
     """
@@ -1844,7 +1844,7 @@ def fraud_feedback():
 
 @app.route('/v1/api/transactions/status', methods=['POST'])
 @token_required
-def update_transaction_status():
+def update_transaction_status(current_user):
     """
     Update the status of a transaction (Open, Investigating, Resolved, False Positive)
     """
@@ -1940,7 +1940,7 @@ def update_transaction_status():
 
 @app.route('/v1/api/get_transactions/status', methods=['POST'])
 @token_required
-def get_transaction_status():
+def get_transaction_status(current_user):
     try:
         data = request.get_json()
         
@@ -1992,7 +1992,7 @@ def get_transaction_status():
     
 @app.route('/v1/api/model_metrics', methods=['GET'])
 @token_required
-def model_metrics_endpoint():
+def model_metrics_endpoint(current_user):
     try:
         # Checking if metrics pickle already exists
         if os.path.exists(MODEL_METRICS_PKL):
@@ -2052,7 +2052,7 @@ def model_metrics_endpoint():
  
 @app.route('/v1/api/system/alert_mode', methods=['POST'])
 @admin_required 
-def toggle_alert_mode():
+def toggle_alert_mode(current_user):
     global NATIONAL_ALERT_MODE
     data = request.get_json()
     mode = data.get("enable", False)
@@ -2068,7 +2068,7 @@ def toggle_alert_mode():
 
 @app.route('/v1/api/system/sovereign_mode', methods=['POST'])
 @admin_required 
-def toggle_sovereign_mode():
+def toggle_sovereign_mode(current_user):
 
     global SOVEREIGN_MODE
     data = request.get_json()
@@ -2085,7 +2085,7 @@ def toggle_sovereign_mode():
 
 @app.route('/v1/api/system/sovereign_mode', methods=['GET'])
 @token_required
-def get_sovereign_mode():
+def get_sovereign_mode(current_user):
     """Get current sovereign mode status"""
     return jsonify({
         "status": "success",
@@ -2095,7 +2095,7 @@ def get_sovereign_mode():
     
 @app.route('/v1/api/audit_log', methods=['GET'])
 @token_required
-def get_audit_log():
+def get_audit_log(current_user):
     """Endpoint for transparency - show recent decisions"""
     try:
         if not os.path.exists("data/audit_log.json"):
@@ -2115,7 +2115,7 @@ def get_audit_log():
  
 @app.route('/v1/api/system/stats', methods=['GET'])
 @token_required
-def system_stats():
+def system_stats(current_user):
     """Return system statistics"""
     try:
      
@@ -2137,7 +2137,7 @@ def system_stats():
     
 @app.route('/v1/api/ethics/bias_mitigation', methods=['GET'])
 @token_required
-def bias_mitigation():
+def bias_mitigation(current_user):
 
     return jsonify({
         "status": "active",
@@ -2175,7 +2175,7 @@ def bias_mitigation():
     
 @app.route('/v1/api/db/transactions', methods=['GET'])
 @token_required
-def get_transactions_from_db():
+def get_transactions_from_db(current_user):
     """Get transactions from SQLite database"""
 
     try:
@@ -2219,7 +2219,7 @@ def get_transactions_from_db():
 
 @app.route('/v1/api/db/stats', methods=['GET'])
 @token_required
-def get_db_stats():
+def get_db_stats(current_user):
     """Get statistics from database"""
     try:
         db = SessionLocal()
