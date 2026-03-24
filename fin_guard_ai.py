@@ -836,7 +836,7 @@ def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURE
                     new_weight = min(current_weight + step_size, 1.0)
                     weights_map[feature] = new_weight
                     updated_count += 1
-                    print(f"  ✅ Increased {feature}: {current_weight:.4f} → {new_weight:.4f}")
+                    print(f"   Increased {feature}: {current_weight:.4f} → {new_weight:.4f}")
                     
                 elif feedback == "false_positive":
                     # Decrease weight for features that led to false positive
@@ -945,7 +945,7 @@ def make_json_serializable(obj):
 ######################################## -------------------- APIS End Points ------------------------###################################
 #########################################################################################################################################
 
-# Register authentication routes
+### authentication routes
 register_auth_routes(app)
 
 @app.route('/v1/api/data_preparation', methods=['POST'])
@@ -1303,6 +1303,7 @@ def real_time_risk_score_endpoint(current_user):
         }), 500
 
 @app.route('/v1/api/transactions', methods=['POST'])
+@token_required
 def transactions_endpoint():
     try:
         data = request.get_json() or {}
@@ -1458,6 +1459,7 @@ def transactions_endpoint():
         }), 500
 
 @app.route('/v1/api/transactions/related', methods=['POST'])
+@token_required
 def get_related_transactions():
     try:
 
@@ -1617,6 +1619,7 @@ def get_related_transactions():
         }), 500
         
 @app.route('/v1/api/transactions_delete', methods=['POST'])
+@token_required
 def delete_transaction():
     """
     Delete a specific transaction by ID (ID provided in JSON body).
@@ -1682,6 +1685,7 @@ def delete_transaction():
         }), 500
 
 @app.route('/v1/api/fraud_history', methods=['POST'])
+@token_required
 def get_fraud_history():
     """
     Endpoint to get all transactions flagged as High Potential Fraud OR Critical Fraud Risk.
@@ -1801,6 +1805,7 @@ def get_fraud_history():
         }), 500
                 
 @app.route("/v1/api/fraud_feedback", methods=["POST"])
+@token_required
 def fraud_feedback():
     """
     Endpoint to handle fraud feedback from users or analysts.
@@ -1838,6 +1843,7 @@ def fraud_feedback():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/v1/api/transactions/status', methods=['POST'])
+@token_required
 def update_transaction_status():
     """
     Update the status of a transaction (Open, Investigating, Resolved, False Positive)
@@ -1933,6 +1939,7 @@ def update_transaction_status():
         }), 500
 
 @app.route('/v1/api/get_transactions/status', methods=['POST'])
+@token_required
 def get_transaction_status():
     try:
         data = request.get_json()
@@ -1984,6 +1991,7 @@ def get_transaction_status():
         }), 500
     
 @app.route('/v1/api/model_metrics', methods=['GET'])
+@token_required
 def model_metrics_endpoint():
     try:
         # Checking if metrics pickle already exists
@@ -2043,6 +2051,7 @@ def model_metrics_endpoint():
         }), 500
  
 @app.route('/v1/api/system/alert_mode', methods=['POST'])
+@token_required
 def toggle_alert_mode():
     global NATIONAL_ALERT_MODE
     data = request.get_json()
@@ -2058,6 +2067,7 @@ def toggle_alert_mode():
     })
 
 @app.route('/v1/api/system/sovereign_mode', methods=['POST'])
+@token_required
 def toggle_sovereign_mode():
 
     global SOVEREIGN_MODE
@@ -2074,6 +2084,7 @@ def toggle_sovereign_mode():
     }), 200
 
 @app.route('/v1/api/system/sovereign_mode', methods=['GET'])
+@token_required
 def get_sovereign_mode():
     """Get current sovereign mode status"""
     return jsonify({
@@ -2083,6 +2094,7 @@ def get_sovereign_mode():
     }), 200
     
 @app.route('/v1/api/audit_log', methods=['GET'])
+@token_required
 def get_audit_log():
     """Endpoint for transparency - show recent decisions"""
     try:
@@ -2102,6 +2114,7 @@ def get_audit_log():
         return jsonify({"error": str(e)}), 500
  
 @app.route('/v1/api/system/stats', methods=['GET'])
+@token_required
 def system_stats():
     """Return system statistics"""
     try:
@@ -2123,6 +2136,7 @@ def system_stats():
         return jsonify({'error': str(e)}), 500
     
 @app.route('/v1/api/ethics/bias_mitigation', methods=['GET'])
+@token_required
 def bias_mitigation():
 
     return jsonify({
@@ -2160,6 +2174,7 @@ def bias_mitigation():
     })
     
 @app.route('/v1/api/db/transactions', methods=['GET'])
+@token_required
 def get_transactions_from_db():
     """Get transactions from SQLite database"""
 
@@ -2203,6 +2218,7 @@ def get_transactions_from_db():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/v1/api/db/stats', methods=['GET'])
+@token_required
 def get_db_stats():
     """Get statistics from database"""
     try:
