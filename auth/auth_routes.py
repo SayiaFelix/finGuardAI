@@ -1,8 +1,8 @@
-# auth/auth_routes.py
 from flask import request, jsonify
 from datetime import datetime, timedelta
 import jwt
 import secrets
+import string
 from database.db_manager import SessionLocal, User, APIKey, RefreshToken
 from auth.jwt_auth import (
     generate_access_token, generate_refresh_token, generate_api_key,
@@ -12,9 +12,11 @@ from auth.jwt_auth import (
 def register_auth_routes(app):
     """Register all authentication routes with the Flask app"""
     
+    # ==================== PUBLIC AUTH ROUTES ====================
+    
     @app.route('/v1/api/auth/register', methods=['POST'])
     def register():
-        """Register a new user"""
+        """Public registration - users can register themselves"""
         try:
             data = request.get_json()
             
@@ -24,9 +26,13 @@ def register_auth_routes(app):
                 if not data.get(field):
                     return jsonify({'error': f'{field} is required'}), 400
             
-            # Validating role if provided
+            # Validating role if provided 
             valid_roles = ['admin', 'analyst', 'viewer', 'investigator', 'compliance']
             role = data.get('role', 'analyst')
+            
+            # Non-admin users cannot register as admin
+            if role == 'admin':
+                return jsonify({'error': 'Cannot register as admin. Contact system administrator.'}), 403
             
             if role not in valid_roles:
                 return jsonify({
@@ -57,7 +63,6 @@ def register_auth_routes(app):
                 db.commit()
                 db.refresh(new_user)
                 
-                ### Getting data before closing session
                 user_data = {
                     'id': new_user.id,
                     'email': new_user.email,
@@ -67,7 +72,7 @@ def register_auth_routes(app):
                 
                 return jsonify({
                     'status': 'success',
-                    'message': f'${new_user.username} User registered successfully !!!!!!!!!!',
+                    'message': f'{new_user.username} registered successfully!',
                     'user': user_data
                 }), 201
                 
@@ -76,7 +81,7 @@ def register_auth_routes(app):
                 
         except Exception as e:
             return jsonify({'error': str(e)}), 500
-        
+    
     @app.route('/v1/api/auth/login', methods=['POST'])
     def login(): 
         """Login and get JWT tokens"""
@@ -109,12 +114,11 @@ def register_auth_routes(app):
                 user.last_login = datetime.utcnow()
                 db.commit()
                 
-                #user data
                 user_id = user.id
                 username = user.username
                 role = user.role
                 
-                # Generate tokens (doesn't need database)
+                # Generate tokens
                 access_token = generate_access_token(user_id, username, role)
                 refresh_token = generate_refresh_token(user_id)
                 
@@ -129,7 +133,7 @@ def register_auth_routes(app):
                 
                 return jsonify({
                     'status': 'success',
-                    'message': f'{username} login successful !!!!!!!!',
+                    'message': f'{username} login successful!',
                     'access_token': access_token,
                     'refresh_token': refresh_token,
                     'user': {
@@ -145,7 +149,7 @@ def register_auth_routes(app):
                 
         except Exception as e:
             return jsonify({'error': str(e)}), 500
-        
+    
     @app.route('/v1/api/auth/refresh', methods=['POST'])
     def refresh():
         """Refresh expired access token"""
@@ -168,7 +172,7 @@ def register_auth_routes(app):
             
             db = SessionLocal()
             
-            # Check if token exists and is not revoked
+            # Checking if token exists and is not revoked
             token_record = db.query(RefreshToken).filter(
                 RefreshToken.token == refresh_token,
                 RefreshToken.revoked == False
@@ -221,7 +225,7 @@ def register_auth_routes(app):
             
             return jsonify({
                 'status': 'success',
-                'message': 'Logged out successfully !!!!!!!!!'
+                'message': 'Logged out successfully!'
             }), 200
             
         except Exception as e:
@@ -233,7 +237,7 @@ def register_auth_routes(app):
         """Get current user info"""
         return jsonify({
             'status': 'success',
-            'message': f'Hello {current_user.username} !!!!!!!!!',
+            'message': f'Hello {current_user.username}!',
             'user': {
                 'id': current_user.id,
                 'username': current_user.username,
@@ -244,6 +248,8 @@ def register_auth_routes(app):
                 'last_login': current_user.last_login.isoformat() if current_user.last_login else None
             }
         }), 200
+    
+    # ==================== API KEY MANAGEMENT ====================
     
     @app.route('/v1/api/auth/api-keys', methods=['POST'])
     @token_required
@@ -338,7 +344,8 @@ def register_auth_routes(app):
         except Exception as e:
             return jsonify({'error': str(e)}), 500
     
-    ### Admin-only endpoints
+    # ==================== ADMIN USER MANAGEMENT ====================
+    
     @app.route('/v1/api/admin/users', methods=['GET'])
     @admin_required
     def list_users(current_user):
@@ -363,23 +370,238 @@ def register_auth_routes(app):
             
             return jsonify({
                 'status': 'success',
-                'message': 'User list retrieved successfully !!!!!!!!!!!!',
+                'message': 'User list retrieved successfully!',
                 'users': result
             }), 200
             
         except Exception as e:
             return jsonify({'error': str(e)}), 500
     
+    @app.route('/v1/api/admin/create_users', methods=['POST'])
+    @admin_required
+    def create_user_admin(current_user):
+        """Admin creates a new user (full control)"""
+        try:
+            data = request.get_json()
+            
+            # Validate required fields
+            required_fields = ['email', 'username', 'password', 'role']
+            for field in required_fields:
+                if not data.get(field):
+                    return jsonify({'error': f'{field} is required'}), 400
+            
+            # Validate role
+            valid_roles = ['admin', 'analyst', 'viewer', 'investigator', 'compliance']
+            role = data.get('role')
+            
+            if role not in valid_roles:
+                return jsonify({
+                    'error': f'Invalid role. Must be one of: {", ".join(valid_roles)}'
+                }), 400
+            
+            db = SessionLocal()
+            
+            try:
+                # Check if user exists
+                existing = db.query(User).filter(
+                    (User.email == data['email']) | (User.username == data['username'])
+                ).first()
+                
+                if existing:
+                    return jsonify({'error': 'User already exists with this email or username'}), 409
+                
+                # Create new user
+                new_user = User(
+                    email=data['email'],
+                    username=data['username'],
+                    role=role,
+                    is_active=data.get('is_active', True)
+                )
+                new_user.set_password(data['password'])
+                
+                db.add(new_user)
+                db.commit()
+                db.refresh(new_user)
+                
+                user_data = {
+                    'id': new_user.id,
+                    'email': new_user.email,
+                    'username': new_user.username,
+                    'role': new_user.role,
+                    'is_active': new_user.is_active,
+                    'created_at': new_user.created_at.isoformat()
+                }
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': f'User {new_user.username} created successfully!',
+                    'user': user_data
+                }), 201
+                
+            finally:
+                db.close()
+                
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    
+    @app.route('/v1/api/admin/users/<int:user_id>', methods=['GET'])
+    @admin_required
+    def get_user_details(current_user, user_id):
+        """Get single user details by ID (admin only)"""
+        try:
+            db = SessionLocal()
+            
+            try:
+                user = db.query(User).filter(User.id == user_id).first()
+                
+                if not user:
+                    return jsonify({'error': 'User not found'}), 404
+                
+                user_data = {
+                    'id': user.id,
+                    'username': user.username,
+                    'email': user.email,
+                    'role': user.role,
+                    'is_active': user.is_active,
+                    'created_at': user.created_at.isoformat(),
+                    'last_login': user.last_login.isoformat() if user.last_login else None
+                }
+                
+                return jsonify({
+                    'status': 'success',
+                    'user': user_data
+                }), 200
+                
+            finally:
+                db.close()
+                
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    
+    @app.route('/v1/api/admin/users/<int:user_id>', methods=['DELETE'])
+    @admin_required
+    def delete_user(current_user, user_id):
+        """Delete a user (admin only)"""
+        try:
+            db = SessionLocal()
+            
+            try:
+                user = db.query(User).filter(User.id == user_id).first()
+                
+                if not user:
+                    return jsonify({'error': 'User not found'}), 404
+                
+                # Cannot delete your own account
+                if user.id == current_user.id:
+                    return jsonify({'error': 'Cannot delete your own account'}), 400
+                
+                # Delete user's refresh tokens first
+                db.query(RefreshToken).filter(RefreshToken.user_id == user_id).delete()
+                
+                # Delete user's API keys
+                db.query(APIKey).filter(APIKey.user_id == user_id).delete()
+                
+                # Delete the user
+                db.delete(user)
+                db.commit()
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': f'User {user.username} deleted successfully!'
+                }), 200
+                
+            finally:
+                db.close()
+                
+        except Exception as e:
+            db.rollback()
+            return jsonify({'error': str(e)}), 500
+    
+    @app.route('/v1/api/admin/users/<int:user_id>/update', methods=['PUT'])
+    @admin_required
+    def update_user(current_user, user_id):
+        """Update user details (admin only)"""
+        try:
+            data = request.get_json()
+            
+            db = SessionLocal()
+            
+            try:
+                user = db.query(User).filter(User.id == user_id).first()
+                
+                if not user:
+                    return jsonify({'error': 'User not found'}), 404
+                
+                # Update username if provided
+                if 'username' in data and data['username']:
+                    existing = db.query(User).filter(
+                        User.username == data['username'],
+                        User.id != user_id
+                    ).first()
+                    if existing:
+                        return jsonify({'error': 'Username already taken'}), 409
+                    user.username = data['username']
+                
+                # Update email if provided
+                if 'email' in data and data['email']:
+                    existing = db.query(User).filter(
+                        User.email == data['email'],
+                        User.id != user_id
+                    ).first()
+                    if existing:
+                        return jsonify({'error': 'Email already taken'}), 409
+                    user.email = data['email']
+                
+                # Update role if provided
+                if 'role' in data and data['role']:
+                    valid_roles = ['admin', 'analyst', 'viewer', 'investigator', 'compliance']
+                    if data['role'] not in valid_roles:
+                        return jsonify({'error': 'Invalid role'}), 400
+                    user.role = data['role']
+                
+                # Update password if provided
+                if 'password' in data and data['password']:
+                    user.set_password(data['password'])
+                
+                db.commit()
+                db.refresh(user)
+                
+                user_data = {
+                    'id': user.id,
+                    'username': user.username,
+                    'email': user.email,
+                    'role': user.role,
+                    'is_active': user.is_active,
+                    'created_at': user.created_at.isoformat(),
+                    'last_login': user.last_login.isoformat() if user.last_login else None
+                }
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': 'User updated successfully',
+                    'user': user_data
+                }), 200
+                
+            finally:
+                db.close()
+                
+        except Exception as e:
+            db.rollback()
+            return jsonify({'error': str(e)}), 500
+    
     @app.route('/v1/api/admin/users/<int:user_id>/role', methods=['PUT'])
     @admin_required
     def update_user_role(current_user, user_id):
-        """Update user role (admin only)"""
+        """Update user role only (admin only)"""
         try:
             data = request.get_json()
             new_role = data.get('role')
             
-            # Valid roles
-            if new_role not in ['admin', 'analyst', 'viewer', 'investigator', 'compliance']:
+            if not new_role:
+                return jsonify({'error': 'Role is required'}), 400
+            
+            valid_roles = ['admin', 'analyst', 'viewer', 'investigator', 'compliance']
+            if new_role not in valid_roles:
                 return jsonify({'error': 'Invalid role'}), 400
             
             db = SessionLocal()
@@ -395,7 +617,7 @@ def register_auth_routes(app):
             
             return jsonify({
                 'status': 'success',
-                'message': f"User {user.username} role updated to {new_role} successfully !!!!!!!!!"
+                'message': f"User {user.username} role updated to {new_role} successfully!"
             }), 200
             
         except Exception as e:
@@ -423,7 +645,7 @@ def register_auth_routes(app):
             
             return jsonify({
                 'status': 'success',
-                'message': f"User {user.username} has been disabled successfully !!!!!!!!!"
+                'message': f"User {user.username} has been disabled successfully!"
             }), 200
             
         except Exception as e:
@@ -447,8 +669,77 @@ def register_auth_routes(app):
             
             return jsonify({
                 'status': 'success',
-                'message': f"User {user.username} has been enabled successfully !!!!!!!!!"
+                'message': f"User {user.username} has been enabled successfully!"
             }), 200
             
         except Exception as e:
             return jsonify({'error': str(e)}), 500
+    
+    @app.route('/v1/api/admin/users/<int:user_id>/reset-password', methods=['POST'])
+    @admin_required
+    def reset_password(current_user, user_id):
+        """Reset password - sends email or generates temporary password (admin only)"""
+        try:
+            data = request.get_json()
+            reset_type = data.get('type', 'email')  # 'email' or 'temporary'
+            
+            db = SessionLocal()
+            
+            try:
+                user = db.query(User).filter(User.id == user_id).first()
+                
+                if not user:
+                    return jsonify({'error': 'User not found'}), 404
+                
+                if reset_type == 'temporary':
+                    # Generate temporary password
+                    temp_password = generate_temporary_password()
+                    user.set_password(temp_password)
+                    db.commit()
+                    
+                    return jsonify({
+                        'status': 'success',
+                        'message': 'Temporary password generated successfully',
+                        'temporaryPassword': temp_password
+                    }), 200
+                    
+                else:
+                    # Send reset email (you can integrate with email service here)
+                    reset_token = generate_reset_token(user.id)
+                    
+                    # In production, you would send an email here
+                    # For now, return the reset link
+                    reset_link = f"/auth/reset-password?token={reset_token}"
+                    
+                    return jsonify({
+                        'status': 'success',
+                        'message': 'Password reset email sent',
+                        'reset_token': reset_token,
+                        'reset_link': reset_link,
+                        'email': user.email
+                    }), 200
+                
+            finally:
+                db.close()
+                
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+
+# ==================== HELPER FUNCTIONS ====================
+
+def generate_temporary_password(length=12):
+    """Generate a random temporary password"""
+    characters = string.ascii_letters + string.digits + "!@#$%^&*"
+    password = ''.join(secrets.choice(characters) for _ in range(length))
+    return password
+
+def generate_reset_token(user_id):
+    """Generate a password reset token"""
+    payload = {
+        'user_id': user_id,
+        'exp': datetime.utcnow() + timedelta(hours=24),
+        'type': 'reset_password',
+        'iat': datetime.utcnow()
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm='HS256')

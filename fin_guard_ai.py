@@ -163,7 +163,6 @@ def load_from_pickle(filename):
     else:
         return {} 
 
-
 # Saving the trained model
 def save_model_to_JobLib(model, filename):
     joblib.dump(model, filename)
@@ -904,7 +903,6 @@ def layer3_lite_adjustment(
     }
 
     return float(final_score), signals
-
 
 def log_decision(transaction_id, risk_score, risk_category, recommended_action):
     global NATIONAL_ALERT_MODE
