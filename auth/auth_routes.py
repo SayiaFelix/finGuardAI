@@ -106,7 +106,6 @@ def register_auth_routes(app):
                 if not user.is_active:
                     return jsonify({'error': 'Account disabled. Contact administrator.'}), 403
                 
-                # Update last login (this needs session, do it before closing)
                 user.last_login = datetime.utcnow()
                 db.commit()
                 
