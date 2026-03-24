@@ -2051,7 +2051,7 @@ def model_metrics_endpoint():
         }), 500
  
 @app.route('/v1/api/system/alert_mode', methods=['POST'])
-@token_required
+@admin_required 
 def toggle_alert_mode():
     global NATIONAL_ALERT_MODE
     data = request.get_json()
@@ -2067,7 +2067,7 @@ def toggle_alert_mode():
     })
 
 @app.route('/v1/api/system/sovereign_mode', methods=['POST'])
-@token_required
+@admin_required 
 def toggle_sovereign_mode():
 
     global SOVEREIGN_MODE
