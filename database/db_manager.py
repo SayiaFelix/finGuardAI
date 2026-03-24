@@ -8,9 +8,16 @@ from datetime import datetime
 import pytz
 import numpy as np
 import pandas as pd
+from dotenv import load_dotenv
+
+import bcrypt
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import relationship
+
+load_dotenv()
 
 # SQLite database file 
-DATABASE_URL = 'sqlite:///database/fraudsentinel.db'
+DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///database/fraudsentinel.db')
 
 # Create engine
 engine = create_engine(
@@ -27,7 +34,90 @@ def get_nairobi_time():
     nairobi_tz = pytz.timezone('Africa/Nairobi')
     return datetime.now(nairobi_tz)
 
-# Database models
+class User(Base):
+    """User accounts for authentication"""
+    __tablename__ = 'users'
+    
+    id = Column(Integer, primary_key=True)
+    email = Column(String, unique=True, nullable=False)
+    username = Column(String, unique=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    role = Column(String, default='analyst')
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=get_nairobi_time)
+    last_login = Column(DateTime, nullable=True)
+    
+    # Relationships
+    api_keys = relationship("APIKey", back_populates="user", cascade="all, delete-orphan")
+    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+    
+    def set_password(self, password):
+        """Hash and set password - works with detached session"""
+        salt = bcrypt.gensalt()
+        self.password_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+        return self
+    
+    def check_password(self, password):
+        """Verify password - works with detached session"""
+        # This doesn't need database access, just compares strings
+        if not self.password_hash:
+            return False
+        return bcrypt.checkpw(password.encode('utf-8'), self.password_hash.encode('utf-8'))
+
+class APIKey(Base):
+    """API keys for programmatic access (commercial clients)"""
+    __tablename__ = 'api_keys'
+    
+    id = Column(Integer, primary_key=True)
+    key = Column(String, unique=True, nullable=False)
+    name = Column(String, nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    tier = Column(String, default='free')  # 'free', 'basic', 'enterprise'
+    rate_limit = Column(Integer, default=100)  # requests per minute
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=get_nairobi_time)
+    expires_at = Column(DateTime, nullable=True)
+    
+    # Relationship
+    user = relationship("User", back_populates="api_keys")
+
+class RefreshToken(Base):
+    """Store refresh tokens for rotation"""
+    __tablename__ = 'refresh_tokens'
+    
+    id = Column(Integer, primary_key=True)
+    token = Column(String, unique=True, nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=get_nairobi_time)
+    revoked = Column(Boolean, default=False)
+    
+    # Relationship
+    user = relationship("User", back_populates="refresh_tokens")
+
+def create_admin_user():
+    """Create default admin user if none exists"""
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.role == 'admin').first()
+        if not admin:
+            admin_user = User(
+                email=os.getenv('ADMIN_EMAIL', 'admin@fraudsentinel.com'),
+                username=os.getenv('ADMIN_USERNAME', 'fraudsentinelAdmin'),
+                role='admin',
+                is_active=True
+            )
+            admin_user.set_password(os.getenv('ADMIN_PASSWORD', 'admin@123'))
+            db.add(admin_user)
+            db.commit()
+            print(f" Default admin user created: {admin_user.username} (role: admin)")
+        else:
+            print(f" Admin user already exists: {admin.username}")
+    except Exception as e:
+        print(f" Admin user creation: {e}")
+    finally:
+        db.close()
+
 class Transaction(Base):
     """Matches exactly what you save in REAL_TIME_RISK_SCORES_PKL"""
     __tablename__ = 'transactions'
@@ -75,6 +165,7 @@ def init_database():
     """Create all tables"""
     Base.metadata.create_all(engine)
     print(" SQLite database created successfully! (fraudsentinel.db)")
+    create_admin_user()
 
 def get_db():
     """Get database session"""

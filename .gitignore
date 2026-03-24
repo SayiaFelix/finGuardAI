@@ -1,3 +1,6 @@
 .env
 data/
 cache/
+delete.py
+logs/
+*.log

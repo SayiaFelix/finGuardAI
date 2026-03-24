@@ -27,6 +27,9 @@ from sklearn.preprocessing import RobustScaler, StandardScaler, OneHotEncoder
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier, BaggingClassifier
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 
+from auth.jwt_auth import token_required, admin_required, analyst_required, api_key_required
+from auth.auth_routes import register_auth_routes
+# from database.db_manager import init_database 
 
 from database.db_manager import save_transaction_to_db, save_feedback_to_db
 from database.db_manager import SessionLocal, Transaction
@@ -942,6 +945,9 @@ def make_json_serializable(obj):
 ######################################## -------------------- APIS End Points ------------------------###################################
 #########################################################################################################################################
 
+# Register authentication routes
+register_auth_routes(app)
+
 @app.route('/v1/api/data_preparation', methods=['POST'])
 def prepare_data_endpoint():
     filename = request.json.get("filename")
@@ -1104,9 +1110,10 @@ def normalized_scores_endpoint():
             'status': 'error',
             'message': f'An error occurred: {str(e)}'
         }), 500
-        
+
 @app.route('/v1/api/real_time_risk_score', methods=['POST'])
-def real_time_risk_score_endpoint():
+@token_required  
+def real_time_risk_score_endpoint(current_user):
     """Endpoint for real-time calculation and storage of risk scores with JSON feedback integration."""
     try:
    
