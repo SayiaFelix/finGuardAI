@@ -1,12 +1,14 @@
+# auth/auth_routes.py
 from flask import request, jsonify
 from datetime import datetime, timedelta
 import jwt
+import pytz
 import secrets
 import string
 from database.db_manager import SessionLocal, User, APIKey, RefreshToken
 from auth.jwt_auth import (
     generate_access_token, generate_refresh_token, generate_api_key,
-    token_required, admin_required, SECRET_KEY
+    token_required, admin_required, SECRET_KEY, get_nairobi_time
 )
 
 def register_auth_routes(app):
@@ -50,12 +52,12 @@ def register_auth_routes(app):
                 if existing:
                     return jsonify({'error': 'User already exists with this email or username'}), 409
                 
-                #new user
                 new_user = User(
                     email=data['email'],
                     username=data['username'],
                     role=role,
-                    is_active=True
+                    is_active=True,
+                    created_at=get_nairobi_time()  # ← Nairobi time
                 )
                 new_user.set_password(data['password'])
                 
@@ -67,7 +69,8 @@ def register_auth_routes(app):
                     'id': new_user.id,
                     'email': new_user.email,
                     'username': new_user.username,
-                    'role': new_user.role
+                    'role': new_user.role,
+                    'created_at': new_user.created_at.isoformat() if new_user.created_at else None
                 }
                 
                 return jsonify({
@@ -111,22 +114,21 @@ def register_auth_routes(app):
                 if not user.is_active:
                     return jsonify({'error': 'Account disabled. Contact administrator.'}), 403
                 
-                user.last_login = datetime.utcnow()
+                # Update last login with Nairobi time
+                user.last_login = get_nairobi_time()  
                 db.commit()
                 
                 user_id = user.id
                 username = user.username
                 role = user.role
                 
-                # Generate tokens
                 access_token = generate_access_token(user_id, username, role)
                 refresh_token = generate_refresh_token(user_id)
                 
-                # Store refresh token
                 db_refresh = RefreshToken(
                     token=refresh_token,
                     user_id=user_id,
-                    expires_at=datetime.utcnow() + timedelta(seconds=86400)
+                    expires_at=get_nairobi_time() + timedelta(seconds=86400)  
                 )
                 db.add(db_refresh)
                 db.commit()
@@ -140,7 +142,8 @@ def register_auth_routes(app):
                         'id': user_id,
                         'username': username,
                         'email': user.email,
-                        'role': role
+                        'role': role,
+                        'last_login': user.last_login.isoformat() if user.last_login else None
                     }
                 }), 200
                 
@@ -172,32 +175,32 @@ def register_auth_routes(app):
             
             db = SessionLocal()
             
-            # Checking if token exists and is not revoked
-            token_record = db.query(RefreshToken).filter(
-                RefreshToken.token == refresh_token,
-                RefreshToken.revoked == False
-            ).first()
-            
-            if not token_record:
+            try:
+                # Check if token exists and is not revoked
+                token_record = db.query(RefreshToken).filter(
+                    RefreshToken.token == refresh_token,
+                    RefreshToken.revoked == False
+                ).first()
+                
+                if not token_record:
+                    return jsonify({'error': 'Refresh token not found or revoked'}), 401
+                
+                # Get user
+                user = db.query(User).filter(User.id == payload['user_id']).first()
+                
+                if not user or not user.is_active:
+                    return jsonify({'error': 'User not found or inactive'}), 401
+                
+                # Generate new access token with Nairobi time
+                new_access_token = generate_access_token(user.id, user.username, user.role)
+                
+                return jsonify({
+                    'status': 'success',
+                    'access_token': new_access_token
+                }), 200
+                
+            finally:
                 db.close()
-                return jsonify({'error': 'Refresh token not found or revoked'}), 401
-            
-            # Get user
-            user = db.query(User).filter(User.id == payload['user_id']).first()
-            
-            if not user or not user.is_active:
-                db.close()
-                return jsonify({'error': 'User not found or inactive'}), 401
-            
-            # Generate new access token
-            new_access_token = generate_access_token(user.id, user.username, user.role)
-            
-            db.close()
-            
-            return jsonify({
-                'status': 'success',
-                'access_token': new_access_token
-            }), 200
             
         except Exception as e:
             return jsonify({'error': str(e)}), 500
@@ -212,16 +215,17 @@ def register_auth_routes(app):
             
             if refresh_token:
                 db = SessionLocal()
-                token_record = db.query(RefreshToken).filter(
-                    RefreshToken.token == refresh_token,
-                    RefreshToken.user_id == current_user.id
-                ).first()
-                
-                if token_record:
-                    token_record.revoked = True
-                    db.commit()
-                
-                db.close()
+                try:
+                    token_record = db.query(RefreshToken).filter(
+                        RefreshToken.token == refresh_token,
+                        RefreshToken.user_id == current_user.id
+                    ).first()
+                    
+                    if token_record:
+                        token_record.revoked = True
+                        db.commit()
+                finally:
+                    db.close()
             
             return jsonify({
                 'status': 'success',
@@ -244,7 +248,7 @@ def register_auth_routes(app):
                 'email': current_user.email,
                 'role': current_user.role,
                 'is_active': current_user.is_active,
-                'created_at': current_user.created_at.isoformat(),
+                'created_at': current_user.created_at.isoformat() if current_user.created_at else None,
                 'last_login': current_user.last_login.isoformat() if current_user.last_login else None
             }
         }), 200
@@ -261,28 +265,31 @@ def register_auth_routes(app):
             tier = data.get('tier', 'free')
             
             db = SessionLocal()
-            
-            api_key = APIKey(
-                key=generate_api_key(),
-                name=name,
-                user_id=current_user.id,
-                tier=tier,
-                rate_limit=100 if tier == 'free' else 500 if tier == 'basic' else 5000,
-                is_active=True
-            )
-            
-            db.add(api_key)
-            db.commit()
-            db.refresh(api_key)
-            db.close()
-            
-            return jsonify({
-                'status': 'success',
-                'api_key': api_key.key,
-                'name': api_key.name,
-                'tier': api_key.tier,
-                'rate_limit': api_key.rate_limit
-            }), 201
+            try:
+                api_key = APIKey(
+                    key=generate_api_key(),
+                    name=name,
+                    user_id=current_user.id,
+                    tier=tier,
+                    rate_limit=100 if tier == 'free' else 500 if tier == 'basic' else 5000,
+                    is_active=True,
+                    created_at=get_nairobi_time() 
+                )
+                
+                db.add(api_key)
+                db.commit()
+                db.refresh(api_key)
+                
+                return jsonify({
+                    'status': 'success',
+                    'api_key': api_key.key,
+                    'name': api_key.name,
+                    'tier': api_key.tier,
+                    'rate_limit': api_key.rate_limit,
+                    'created_at': api_key.created_at.isoformat()
+                }), 201
+            finally:
+                db.close()
             
         except Exception as e:
             return jsonify({'error': str(e)}), 500
@@ -293,26 +300,27 @@ def register_auth_routes(app):
         """List all API keys for current user"""
         try:
             db = SessionLocal()
-            keys = db.query(APIKey).filter(APIKey.user_id == current_user.id).all()
-            
-            result = []
-            for key in keys:
-                result.append({
-                    'key': key.key,
-                    'name': key.name,
-                    'tier': key.tier,
-                    'rate_limit': key.rate_limit,
-                    'is_active': key.is_active,
-                    'created_at': key.created_at.isoformat(),
-                    'expires_at': key.expires_at.isoformat() if key.expires_at else None
-                })
-            
-            db.close()
-            
-            return jsonify({
-                'status': 'success',
-                'api_keys': result
-            }), 200
+            try:
+                keys = db.query(APIKey).filter(APIKey.user_id == current_user.id).all()
+                
+                result = []
+                for key in keys:
+                    result.append({
+                        'key': key.key,
+                        'name': key.name,
+                        'tier': key.tier,
+                        'rate_limit': key.rate_limit,
+                        'is_active': key.is_active,
+                        'created_at': key.created_at.isoformat() if key.created_at else None,
+                        'expires_at': key.expires_at.isoformat() if key.expires_at else None
+                    })
+                
+                return jsonify({
+                    'status': 'success',
+                    'api_keys': result
+                }), 200
+            finally:
+                db.close()
             
         except Exception as e:
             return jsonify({'error': str(e)}), 500
@@ -323,23 +331,24 @@ def register_auth_routes(app):
         """Revoke an API key"""
         try:
             db = SessionLocal()
-            api_key = db.query(APIKey).filter(
-                APIKey.key == key,
-                APIKey.user_id == current_user.id
-            ).first()
-            
-            if not api_key:
+            try:
+                api_key = db.query(APIKey).filter(
+                    APIKey.key == key,
+                    APIKey.user_id == current_user.id
+                ).first()
+                
+                if not api_key:
+                    return jsonify({'error': 'API key not found'}), 404
+                
+                api_key.is_active = False
+                db.commit()
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': 'API key revoked successfully'
+                }), 200
+            finally:
                 db.close()
-                return jsonify({'error': 'API key not found'}), 404
-            
-            api_key.is_active = False
-            db.commit()
-            db.close()
-            
-            return jsonify({
-                'status': 'success',
-                'message': 'API key revoked successfully'
-            }), 200
             
         except Exception as e:
             return jsonify({'error': str(e)}), 500
@@ -352,27 +361,28 @@ def register_auth_routes(app):
         """List all users (admin only)"""
         try:
             db = SessionLocal()
-            users = db.query(User).all()
-            
-            result = []
-            for user in users:
-                result.append({
-                    'id': user.id,
-                    'username': user.username,
-                    'email': user.email,
-                    'role': user.role,
-                    'is_active': user.is_active,
-                    'created_at': user.created_at.isoformat(),
-                    'last_login': user.last_login.isoformat() if user.last_login else None
-                })
-            
-            db.close()
-            
-            return jsonify({
-                'status': 'success',
-                'message': 'User list retrieved successfully!',
-                'users': result
-            }), 200
+            try:
+                users = db.query(User).all()
+                
+                result = []
+                for user in users:
+                    result.append({
+                        'id': user.id,
+                        'username': user.username,
+                        'email': user.email,
+                        'role': user.role,
+                        'is_active': user.is_active,
+                        'created_at': user.created_at.isoformat() if user.created_at else None,
+                        'last_login': user.last_login.isoformat() if user.last_login else None
+                    })
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': 'User list retrieved successfully!',
+                    'users': result
+                }), 200
+            finally:
+                db.close()
             
         except Exception as e:
             return jsonify({'error': str(e)}), 500
@@ -410,12 +420,13 @@ def register_auth_routes(app):
                 if existing:
                     return jsonify({'error': 'User already exists with this email or username'}), 409
                 
-                # Create new user
+             
                 new_user = User(
                     email=data['email'],
                     username=data['username'],
                     role=role,
-                    is_active=data.get('is_active', True)
+                    is_active=data.get('is_active', True),
+                    created_at=get_nairobi_time()  
                 )
                 new_user.set_password(data['password'])
                 
@@ -429,7 +440,7 @@ def register_auth_routes(app):
                     'username': new_user.username,
                     'role': new_user.role,
                     'is_active': new_user.is_active,
-                    'created_at': new_user.created_at.isoformat()
+                    'created_at': new_user.created_at.isoformat() if new_user.created_at else None
                 }
                 
                 return jsonify({
@@ -450,7 +461,6 @@ def register_auth_routes(app):
         """Get single user details by ID (admin only)"""
         try:
             db = SessionLocal()
-            
             try:
                 user = db.query(User).filter(User.id == user_id).first()
                 
@@ -463,7 +473,7 @@ def register_auth_routes(app):
                     'email': user.email,
                     'role': user.role,
                     'is_active': user.is_active,
-                    'created_at': user.created_at.isoformat(),
+                    'created_at': user.created_at.isoformat() if user.created_at else None,
                     'last_login': user.last_login.isoformat() if user.last_login else None
                 }
                 
@@ -471,7 +481,6 @@ def register_auth_routes(app):
                     'status': 'success',
                     'user': user_data
                 }), 200
-                
             finally:
                 db.close()
                 
@@ -484,14 +493,13 @@ def register_auth_routes(app):
         """Delete a user (admin only)"""
         try:
             db = SessionLocal()
-            
             try:
                 user = db.query(User).filter(User.id == user_id).first()
                 
                 if not user:
                     return jsonify({'error': 'User not found'}), 404
                 
-                # Cannot delete your own account
+                # Cannot delete own account
                 if user.id == current_user.id:
                     return jsonify({'error': 'Cannot delete your own account'}), 400
                 
@@ -510,11 +518,13 @@ def register_auth_routes(app):
                     'message': f'User {user.username} deleted successfully!'
                 }), 200
                 
+            except Exception as e:
+                db.rollback()
+                return jsonify({'error': str(e)}), 500
             finally:
                 db.close()
                 
         except Exception as e:
-            db.rollback()
             return jsonify({'error': str(e)}), 500
     
     @app.route('/v1/api/admin/users/<int:user_id>/update', methods=['PUT'])
@@ -525,7 +535,6 @@ def register_auth_routes(app):
             data = request.get_json()
             
             db = SessionLocal()
-            
             try:
                 user = db.query(User).filter(User.id == user_id).first()
                 
@@ -563,6 +572,8 @@ def register_auth_routes(app):
                 if 'password' in data and data['password']:
                     user.set_password(data['password'])
                 
+                user.updated_at = get_nairobi_time()
+                
                 db.commit()
                 db.refresh(user)
                 
@@ -572,7 +583,8 @@ def register_auth_routes(app):
                     'email': user.email,
                     'role': user.role,
                     'is_active': user.is_active,
-                    'created_at': user.created_at.isoformat(),
+                    'created_at': user.created_at.isoformat() if user.created_at else None,
+                    'updated_at': user.updated_at.isoformat() if hasattr(user, 'updated_at') and user.updated_at else None,
                     'last_login': user.last_login.isoformat() if user.last_login else None
                 }
                 
@@ -582,13 +594,15 @@ def register_auth_routes(app):
                     'user': user_data
                 }), 200
                 
+            except Exception as e:
+                db.rollback()
+                return jsonify({'error': str(e)}), 500
             finally:
                 db.close()
                 
         except Exception as e:
-            db.rollback()
             return jsonify({'error': str(e)}), 500
-    
+
     @app.route('/v1/api/admin/users/<int:user_id>/role', methods=['PUT'])
     @admin_required
     def update_user_role(current_user, user_id):
@@ -605,49 +619,59 @@ def register_auth_routes(app):
                 return jsonify({'error': 'Invalid role'}), 400
             
             db = SessionLocal()
-            user = db.query(User).filter(User.id == user_id).first()
+            try:
+                user = db.query(User).filter(User.id == user_id).first()
+                
+                if not user:
+                    return jsonify({'error': 'User not found'}), 404
+                
+                user.role = new_role
             
-            if not user:
+                user.updated_at = get_nairobi_time()
+                db.commit()
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': f"User {user.username} role updated to {new_role} successfully!"
+                }), 200
+                
+            finally:
                 db.close()
-                return jsonify({'error': 'User not found'}), 404
-            
-            user.role = new_role
-            db.commit()
-            db.close()
-            
-            return jsonify({
-                'status': 'success',
-                'message': f"User {user.username} role updated to {new_role} successfully!"
-            }), 200
             
         except Exception as e:
             return jsonify({'error': str(e)}), 500
-    
+
     @app.route('/v1/api/admin/users/<int:user_id>/disable', methods=['PUT'])
     @admin_required
     def disable_user(current_user, user_id):
         """Disable a user account (admin only)"""
         try:
             db = SessionLocal()
-            user = db.query(User).filter(User.id == user_id).first()
+            try:
+                user = db.query(User).filter(User.id == user_id).first()
+                
+                if not user:
+                    return jsonify({'error': 'User not found'}), 404
+                
+                if user.id == current_user.id:
+                    return jsonify({'error': 'Cannot disable your own account'}), 400
+                
+                user.is_active = False
             
-            if not user:
+                user.updated_at = get_nairobi_time()
+                db.commit()
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': f"User {user.username} has been disabled successfully!"
+                }), 200
+                
+            except Exception as e:
+                db.rollback()
+                return jsonify({'error': str(e)}), 500
+            finally:
                 db.close()
-                return jsonify({'error': 'User not found'}), 404
-            
-            if user.id == current_user.id:
-                db.close()
-                return jsonify({'error': 'Cannot disable your own account'}), 400
-            
-            user.is_active = False
-            db.commit()
-            db.close()
-            
-            return jsonify({
-                'status': 'success',
-                'message': f"User {user.username} has been disabled successfully!"
-            }), 200
-            
+                
         except Exception as e:
             return jsonify({'error': str(e)}), 500
     
@@ -657,21 +681,28 @@ def register_auth_routes(app):
         """Enable a disabled user account (admin only)"""
         try:
             db = SessionLocal()
-            user = db.query(User).filter(User.id == user_id).first()
+            try:
+                user = db.query(User).filter(User.id == user_id).first()
+                
+                if not user:
+                    return jsonify({'error': 'User not found'}), 404
+                
+                user.is_active = True
             
-            if not user:
+                user.updated_at = get_nairobi_time()
+                db.commit()
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': f"User {user.username} has been enabled successfully!"
+                }), 200
+                
+            except Exception as e:
+                db.rollback()
+                return jsonify({'error': str(e)}), 500
+            finally:
                 db.close()
-                return jsonify({'error': 'User not found'}), 404
-            
-            user.is_active = True
-            db.commit()
-            db.close()
-            
-            return jsonify({
-                'status': 'success',
-                'message': f"User {user.username} has been enabled successfully!"
-            }), 200
-            
+                
         except Exception as e:
             return jsonify({'error': str(e)}), 500
     
@@ -681,10 +712,9 @@ def register_auth_routes(app):
         """Reset password - sends email or generates temporary password (admin only)"""
         try:
             data = request.get_json()
-            reset_type = data.get('type', 'email')  # 'email' or 'temporary'
+            reset_type = data.get('type', 'email')
             
             db = SessionLocal()
-            
             try:
                 user = db.query(User).filter(User.id == user_id).first()
                 
@@ -695,6 +725,8 @@ def register_auth_routes(app):
                     # Generate temporary password
                     temp_password = generate_temporary_password()
                     user.set_password(temp_password)
+                
+                    user.updated_at = get_nairobi_time()
                     db.commit()
                     
                     return jsonify({
@@ -704,18 +736,14 @@ def register_auth_routes(app):
                     }), 200
                     
                 else:
-                    # Send reset email (you can integrate with email service here)
+                    # Send reset email with token
                     reset_token = generate_reset_token(user.id)
-                    
-                    # In production, you would send an email here
-                    # For now, return the reset link
-                    reset_link = f"/auth/reset-password?token={reset_token}"
                     
                     return jsonify({
                         'status': 'success',
                         'message': 'Password reset email sent',
                         'reset_token': reset_token,
-                        'reset_link': reset_link,
+                        'reset_link': f"/auth/reset-password?token={reset_token}",
                         'email': user.email
                     }), 200
                 
@@ -735,11 +763,12 @@ def generate_temporary_password(length=12):
     return password
 
 def generate_reset_token(user_id):
-    """Generate a password reset token"""
+    """Generate a password reset token with Nairobi time"""
+    nairobi_time = get_nairobi_time()
     payload = {
         'user_id': user_id,
-        'exp': datetime.utcnow() + timedelta(hours=24),
+        'exp': nairobi_time + timedelta(hours=24),
         'type': 'reset_password',
-        'iat': datetime.utcnow()
+        'iat': nairobi_time
     }
     return jwt.encode(payload, SECRET_KEY, algorithm='HS256')
