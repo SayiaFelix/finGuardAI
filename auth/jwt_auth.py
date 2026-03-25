@@ -1,4 +1,3 @@
-# auth/jwt_auth.py
 import jwt
 import os
 import secrets
@@ -81,7 +80,7 @@ def token_required(f):
             if not current_user.is_active:
                 return jsonify({'error': 'User account disabled', 'message': 'Contact administrator'}), 401
             
-            # Pass user to endpoint
+            #user to endpoint
             return f(current_user, *args, **kwargs)
             
         except jwt.ExpiredSignatureError:
@@ -130,12 +129,11 @@ def api_key_required(f):
             if not key_record:
                 return jsonify({'error': 'Invalid API key'}), 401
             
-            # Check expiration with Nairobi time
+            #Check expiration with Nairobi time
             nairobi_time = get_nairobi_time()
             if key_record.expires_at and key_record.expires_at < nairobi_time:
                 return jsonify({'error': 'API key expired', 'message': 'Please renew your API key'}), 401
             
-            # Attach user info to request
             request.api_user = key_record.user
             request.api_key_info = key_record
             

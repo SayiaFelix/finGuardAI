@@ -1,4 +1,3 @@
-# auth/auth_routes.py
 from flask import request, jsonify
 from datetime import datetime, timedelta
 import jwt
@@ -746,6 +745,50 @@ def register_auth_routes(app):
                         'reset_link': f"/auth/reset-password?token={reset_token}",
                         'email': user.email
                     }), 200
+                
+            finally:
+                db.close()
+                
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+        
+    @app.route('/v1/api/auth/forgot-password', methods=['POST'])
+    def forgot_password():
+        """Public endpoint - user requests password reset via email"""
+        try:
+            data = request.get_json()
+            email = data.get('email')
+            
+            if not email:
+                return jsonify({'error': 'Email is required'}), 400
+            
+            db = SessionLocal()
+            try:
+                #Finding user by email
+                user = db.query(User).filter(User.email == email).first()
+                
+                if not user:
+                    return jsonify({
+                        'status': 'success',
+                        'message': 'If your email is registered, you will receive password reset instructions.'
+                    }), 200
+                
+                if not user.is_active:
+                    return jsonify({'error': 'Account is disabled. Contact administrator.'}), 403
+                
+                temp_password = generate_temporary_password()
+                user.set_password(temp_password)
+                user.updated_at = get_nairobi_time()
+                db.commit()
+                
+                ### For demo purposes, we return the temporary password
+                ##In production, we will would send this via email instead of returning it
+                return jsonify({
+                    'status': 'success',
+                    'message': 'Temporary password generated successfully',
+                    'temporaryPassword': temp_password,
+                    'email': user.email
+                }), 200
                 
             finally:
                 db.close()
