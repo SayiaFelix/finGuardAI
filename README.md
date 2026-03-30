@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
-> **BeOrchid Africa Hackathon 2026 - Top 30 Finalist** 🏆
+<!-- > **BeOrchid Africa Hackathon 2026 - Top 30 Finalist** 🏆 -->
 
 FraudSentinel AI is a production-ready fraud detection system designed specifically for African financial institutions. It combines a 7-model ensemble machine learning approach with rule-based detection, providing real-time risk scoring with sub-200ms latency.
 
