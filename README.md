@@ -61,7 +61,7 @@ FraudSentinel AI is a production-ready fraud detection system designed specifica
 ### 1. Clone the repository
 ```bash
 git clone https://github.com/SayiaFelix/finGuardAI.git
-cd finGuardAI
+cd development
 
 ```
 ### Backend setup
