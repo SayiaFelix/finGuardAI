@@ -1,4 +1,4 @@
-# FraudSentinel AI - Backend
+# FraudSentinel AI
 ### Real-Time Fraud Detection for African Financial Systems
 
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://python.org)
