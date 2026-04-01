@@ -1,7 +1,6 @@
 from flask import request, jsonify
-from datetime import datetime, timedelta
+from datetime import timedelta
 import jwt
-import pytz
 import secrets
 import string
 from database.db_manager import SessionLocal, User, APIKey, RefreshToken
@@ -43,7 +42,7 @@ def register_auth_routes(app):
             db = SessionLocal()
             
             try:
-                # Check if user exists
+                #Checking if user exists
                 existing = db.query(User).filter(
                     (User.email == data['email']) | (User.username == data['username'])
                 ).first()
@@ -56,7 +55,7 @@ def register_auth_routes(app):
                     username=data['username'],
                     role=role,
                     is_active=True,
-                    created_at=get_nairobi_time()  # ← Nairobi time
+                    created_at=get_nairobi_time()
                 )
                 new_user.set_password(data['password'])
                 
@@ -96,7 +95,7 @@ def register_auth_routes(app):
             db = SessionLocal()
             
             try:
-                # Finding user by username or email
+                #Finding user by username or email
                 user = db.query(User).filter(
                     (User.username == data['username']) | (User.email == data['username'])
                 ).first()
@@ -104,7 +103,7 @@ def register_auth_routes(app):
                 if not user:
                     return jsonify({'error': 'Invalid credentials'}), 401
                 
-                # Check password
+                ###Checking password
                 password_valid = user.check_password(data['password'])
                 
                 if not password_valid:
@@ -113,7 +112,6 @@ def register_auth_routes(app):
                 if not user.is_active:
                     return jsonify({'error': 'Account disabled. Contact administrator.'}), 403
                 
-                # Update last login with Nairobi time
                 user.last_login = get_nairobi_time()  
                 db.commit()
                 
@@ -162,7 +160,7 @@ def register_auth_routes(app):
             if not refresh_token:
                 return jsonify({'error': 'Refresh token required'}), 400
             
-            # Verify refresh token
+            ##Verify refresh token
             try:
                 payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=['HS256'])
                 if payload.get('type') != 'refresh':
@@ -175,7 +173,7 @@ def register_auth_routes(app):
             db = SessionLocal()
             
             try:
-                # Check if token exists and is not revoked
+                # if token exists and is not revoked
                 token_record = db.query(RefreshToken).filter(
                     RefreshToken.token == refresh_token,
                     RefreshToken.revoked == False
@@ -184,7 +182,7 @@ def register_auth_routes(app):
                 if not token_record:
                     return jsonify({'error': 'Refresh token not found or revoked'}), 401
                 
-                # Get user
+                ##Getting user
                 user = db.query(User).filter(User.id == payload['user_id']).first()
                 
                 if not user or not user.is_active:
@@ -393,7 +391,7 @@ def register_auth_routes(app):
         try:
             data = request.get_json()
             
-            # Validate required fields
+            #Validate required fields
             required_fields = ['email', 'username', 'password', 'role']
             for field in required_fields:
                 if not data.get(field):
@@ -498,17 +496,16 @@ def register_auth_routes(app):
                 if not user:
                     return jsonify({'error': 'User not found'}), 404
                 
-                # Cannot delete own account
+                ##Cannot delete own account
                 if user.id == current_user.id:
                     return jsonify({'error': 'Cannot delete your own account'}), 400
                 
                 # Delete user's refresh tokens first
                 db.query(RefreshToken).filter(RefreshToken.user_id == user_id).delete()
                 
-                # Delete user's API keys
+                ##Delete user's API keys
                 db.query(APIKey).filter(APIKey.user_id == user_id).delete()
                 
-                # Delete the user
                 db.delete(user)
                 db.commit()
                 

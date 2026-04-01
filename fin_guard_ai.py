@@ -29,7 +29,6 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 
 from auth.jwt_auth import token_required, admin_required, analyst_required, api_key_required
 from auth.auth_routes import register_auth_routes
-# from database.db_manager import init_database 
 
 from database.db_manager import save_transaction_to_db, save_feedback_to_db
 from database.db_manager import SessionLocal, Transaction
@@ -42,7 +41,6 @@ from flask_cors import CORS
 
 from dotenv import load_dotenv
 from openai import OpenAI
-import os
 
 
 weights_map = load_weights()
@@ -53,7 +51,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app) 
+# CORS(app, origins=['https://fraudsentinel-ai.netlify.app', 'http://localhost:4200'])
+CORS(app, origins=['*'])
 random.seed(42)
 
 load_dotenv() 
@@ -104,7 +103,7 @@ class CustomJSONEncoder(json.JSONEncoder):
             return bool(obj)
         return super().default(obj)
 
-# Set the custom encoder
+# Setting the custom encoder
 app.json_encoder = CustomJSONEncoder
 
 def convert_numpy_types(obj):
@@ -215,7 +214,7 @@ def prepare_data(file_path):
     cols_to_check = ['Transaction_Amount', 'Device_Type', 'Transaction_Type', 'IP_Address']
     data.dropna(subset=cols_to_check, inplace=True)
 
-    # Converting Transaction_Date to datetime and extract hour, day of week, and weekend info
+    #Converting Transaction_Date to datetime and extract hour, day of week, and weekend info
     data['Transaction_Date'] = pd.to_datetime(data['Transaction_Date'], errors='coerce')
     data['Transaction_Hour'] = data['Transaction_Date'].dt.hour
     data['Day_of_Week'] = data['Transaction_Date'].dt.dayofweek
@@ -230,7 +229,7 @@ def prepare_data(file_path):
         include_lowest=True
     )
 
-    # Binning Transaction_Amount into categories
+    #Binning Transaction_Amount into categories
     data['Amount_Category'] = pd.cut(
         data['Transaction_Amount'],
         bins=[0, 5000, 10000, 15000, float('inf')],
@@ -257,7 +256,7 @@ def prepare_data(file_path):
     robust_scaler = RobustScaler()
     data['Transaction_Hour'] = robust_scaler.fit_transform(data['Transaction_Hour'].values.reshape(-1, 1))
 
-    # One-hot encode categorical columns
+    #One-hot encode categorical columns
     categorical_columns = ['Transaction_Type', 'Device_Type', 'Transaction_Period', 'Amount_Category', 'Transaction_Location']
     onehot_encoder = OneHotEncoder()
     encoded_columns = onehot_encoder.fit_transform(data[categorical_columns])
@@ -396,7 +395,7 @@ def normalize_and_categorize_risk_scores():
     save_model_to_JobLib(models, RISK_MODELS_JOBLIB)
     print(f"All models saved in '{RISK_MODELS_JOBLIB}' successfully!!!!!")
     
-    # Initialize DataFrame
+    # Initialize DF
     results_df = pd.DataFrame(X_test)
     results_df['True_Label'] = y_test
 
@@ -426,7 +425,7 @@ def normalize_and_categorize_risk_scores():
     results_df['Normalized_Risk_Score'] = normalized_scores
     results_df['Fraud_Prediction'] = (normalized_scores >= 5).astype(int)
 
-    # Risk categories using binning
+    #Risk categories using binning
     bins = [0, 5, 10]
     labels = ['Low Potential Fraud', 'High Fraud Potential']
     results_df['Risk_Category'] = pd.cut(results_df['Normalized_Risk_Score'], bins=bins, labels=labels, include_lowest=True)
@@ -467,7 +466,7 @@ def real_time_risk_scoring(transaction, models, weights_map):
     fraud_votes = sum(predictions)
     total_models = len(models)
     
-    ## RULE-BASED DETECTION ENGINE
+    ##RULE-BASED DETECTION ENGINE
     # This complements ML models by capturing known fraud patterns
     rule_flagged = False
     rule_reasons = []
@@ -658,7 +657,7 @@ def build_llm_prompt(
     transaction_details,
     recommended_action
 ):
-    # Extracting rule information
+    #rule information
     rule_info = ""
     if transaction_details.get('Rule_Triggered', False):
         rules = transaction_details.get('Rule_Flags', [])
@@ -810,7 +809,7 @@ def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURE
     try:
         weights_df = load_from_pickle(weights_file)
         
-        # Ensuring weights_df is not empty
+        ##Ensuring weights_df is not empty
         if weights_df.empty:
             logger.error(f"Weights DataFrame is empty from {weights_file}")
             weights_df = calculate_feature_importance_weights()
@@ -819,7 +818,7 @@ def adapt_weights(transaction_features, feedback, weights_file=IMPORTANT_FEATURE
         
         selected_features = load_from_pickle(IMPORTANT_FEATURES_PKL)
         
-        # Increase step size for more visible effect
+        ##Increase step size for more visible effect
         step_size = 0.05  
         
         logger.info(f"Adapting weights for feedback: {feedback}")
@@ -876,9 +875,9 @@ def layer3_lite_adjustment(
  
     if avg_amount is None:
         if transaction_amount < 2000:
-            avg_amount = 500  # Small transactions average
+            avg_amount = 500  #Small transactions average
         elif transaction_amount < 20000:
-            avg_amount = 25000  # Medium transactions average
+            avg_amount = 25000  #Medium transactions average
         else:
             avg_amount = 50000 
     

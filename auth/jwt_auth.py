@@ -5,12 +5,12 @@ import pytz
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import request, jsonify
-from database.db_manager import SessionLocal, User, APIKey, RefreshToken
+from database.db_manager import SessionLocal, User, APIKey
 
 # JWT Configuration
 SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'super-secret-jwt-key-change-this-in-production-12345')
-ACCESS_TOKEN_EXPIRES = int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', 300))  # 5 minutes
-REFRESH_TOKEN_EXPIRES = int(os.getenv('JWT_REFRESH_TOKEN_EXPIRES', 600))  # 10 minutes
+ACCESS_TOKEN_EXPIRES = int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES', 3600))  # 1 hour
+REFRESH_TOKEN_EXPIRES = int(os.getenv('JWT_REFRESH_TOKEN_EXPIRES', 7200))  # 10 minutes
 
 def get_nairobi_time():
     """Returns current time in Africa/Nairobi timezone"""
