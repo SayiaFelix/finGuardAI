@@ -614,14 +614,14 @@ def generate_llm_explanation(
     
     global SOVEREIGN_MODE
     
-    #sovereign mode first
-    if SOVEREIGN_MODE:
-        logger.info("Sovereign mode active - LLM disabled for national independence")
+    if not SOVEREIGN_MODE:
+        logger.info("Sovereign mode inactive - LLM disabled")
         return None
 
     if client is None:
         logger.info("LLM disabled: GROQ_API_KEY not set")
-        return None 
+        return None
+    
 
     prompt = build_llm_prompt(
         risk_score,
@@ -2066,7 +2066,6 @@ def toggle_alert_mode(current_user):
 @app.route('/v1/api/system/sovereign_mode', methods=['POST'])
 @admin_required 
 def toggle_sovereign_mode(current_user):
-
     global SOVEREIGN_MODE
     data = request.get_json()
     mode = data.get("enable", False)
@@ -2077,9 +2076,9 @@ def toggle_sovereign_mode(current_user):
         "status": "success",
         "message": f"Sovereign Mode {'enabled' if SOVEREIGN_MODE else 'disabled'} successfully !!!!!!!!!!!!",
         "sovereign_mode": SOVEREIGN_MODE,
-        "llm_status": "disabled" if SOVEREIGN_MODE else "enabled"
+        "llm_status": "enabled" if SOVEREIGN_MODE else "disabled"   # ← SWAPPED
     }), 200
-
+    
 @app.route('/v1/api/system/sovereign_mode', methods=['GET'])
 @token_required
 def get_sovereign_mode(current_user):
