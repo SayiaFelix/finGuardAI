@@ -255,6 +255,8 @@ After running the server, use these credentials to authenticate
 | Admin | admin@fraudsentinel.com | admin123 |
 | Analyst | analyst@fraudsentinel.com | analyst123 |
 
+💡 **Quick Demo Access:** Click the button on the right side of the login form to auto-fill Admin credentials, then press **Login**.
+
 *Run `python fin_guard_ai.py` first to create these users*
 
 ## Team
