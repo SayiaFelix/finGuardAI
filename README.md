@@ -27,6 +27,7 @@ FraudSentinel AI is a production-ready fraud detection system designed specifica
 - [How FraudSentinel AI Meets Stage 3 Criteria](#how-fraudsentinel-ai-meets-stage-3-criteria)
 - [Quick Start](#quick-start)
 - [Test Credentials](#test-credentials)
+- [Team](#team)
 
 ## Problem Statement
 
@@ -259,7 +260,7 @@ After running the server, use these credentials to authenticate
 ## Team
 
 ### Team Lead
-- Felix Lucas Sayia
+- Felix Sayia
 
 ### Project
 - FraudSentinel AI
