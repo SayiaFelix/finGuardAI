@@ -87,19 +87,19 @@ Financial institutions face evolving fraud tactics including synthetic identity 
 
 | Risk Analyzer | AI Insights |
 |---------------|----------------|
-| ![Risk Analyzer](docs/risk-analyzer.png) | ![AI Insights](docs/fraud-history.png) |
+| ![Risk Analyzer](docs/risk-analyzer.png) | ![AI Insights](docs/ai-insight.png) |
 
 | Live Transaction | Transaction Detail |
 |---------------------|-----------------|
-| ![Live Transaction](docs/transaction-details.png) | ![Transaction Details](docs/user-management.png) |
+| ![Live Transaction](docs/transactions.png) | ![Transaction Details](docs/transactions-detail.png) |
 
 | Fraud History | Fraud Details |
 |---------------------|-----------------|
-| ![Transaction Details](docs/transaction-details.png) | ![Fraud Details](docs/user-management.png) |
+| ![Fraud History](docs/fraud.png) | ![Fraud Details](docs/fraud-detail.png) |
 
 | User Management | User Detail |
 |---------------------|-----------------|
-| ![User Management](docs/transaction-details.png) | ![User Detail](docs/user-management.png) |
+| ![User Management](docs/user-management.png) | ![User Detail](docs/user.png) |
 
 
 ## Demo Video
