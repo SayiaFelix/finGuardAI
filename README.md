@@ -21,7 +21,7 @@ FraudSentinel AI is a production-ready fraud detection system designed specifica
 
 - [Problem Statement](#problem-statement)
 - [System Architecture](#system-architecture)
-- [Screenshots](#portal-screenshots)
+- [Portal Screenshots](#portal-screenshots)
 - [Demo Video](#demo-video)
 - [Features](#features)
 - [How FraudSentinel AI Meets Stage 3 Criteria](#how-fraudsentinel-ai-meets-stage-3-criteria)
@@ -31,9 +31,12 @@ FraudSentinel AI is a production-ready fraud detection system designed specifica
 
 ## Problem Statement
 
-Financial institutions across Africa face increasing fraud risks, including account takeovers, transaction laundering, identity fraud, and suspicious transaction patterns. Traditional rule-based systems generate high false-positive rates and often fail to adapt to evolving fraud tactics.
+Across Africa, rapid growth in mobile money, digital lending, and online banking has significantly increased financial inclusion but also expanded the fraud attack surface. Platforms such as M-Pesa, MTN MoMo, and OPay process millions of daily transactions.
 
-FraudSentinel AI combines rule-based detection, machine learning, adaptive feedback mechanisms, and explainable AI to provide accurate, transparent, and scalable fraud detection.
+Financial institutions face evolving fraud tactics including synthetic identity fraud, SIM-swap attacks, account takeover, and coordinated fraud rings. Traditional rule-based systems generate high false-positive rates, react after financial loss occurs, and lack explainability for regulators.
+
+**FraudSentinel AI** combines machine learning (7-model ensemble), rule-based detection, adaptive feedback, and LLM-powered explainability to provide accurate, transparent, and scalable fraud detection built specifically for Africa's digital finance ecosystem.
+
 
 ### Project Status
 
