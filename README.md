@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
-## Related Repositories
+### Related Repositories
 
 - [Frontend](https://github.com/SayiaFelix/fraudGuard.git)
 - [Backend](https://github.com/SayiaFelix/finGuardAI.git)
@@ -17,11 +17,11 @@
 
 FraudSentinel AI is a production-ready fraud detection system designed specifically for African financial institutions. The project focuses on leveraging Artificial Intelligence to improve fraud detection, risk assessment, and financial security across African institutions. It combines a 7-model ensemble machine learning approach with rule-based detection, providing real-time risk scoring with sub-200ms latency.
 
-## Table of Contents
+### Table of Contents
 
 - [Problem Statement](#problem-statement)
 - [System Architecture](#system-architecture)
-- [Screenshots](#screenshots)
+- [Screenshots](#portal-screenshots)
 - [Demo Video](#demo-video)
 - [Features](#features)
 - [How FraudSentinel AI Meets Stage 3 Criteria](#how-fraudsentinel-ai-meets-stage-3-criteria)
@@ -31,9 +31,7 @@ FraudSentinel AI is a production-ready fraud detection system designed specifica
 
 ## Problem Statement
 
-Financial institutions across Africa face increasing fraud risks, including account takeovers, transaction laundering, identity fraud, and suspicious transaction patterns.
-
-Traditional rule-based systems generate high false-positive rates and often fail to adapt to evolving fraud tactics.
+Financial institutions across Africa face increasing fraud risks, including account takeovers, transaction laundering, identity fraud, and suspicious transaction patterns. Traditional rule-based systems generate high false-positive rates and often fail to adapt to evolving fraud tactics.
 
 FraudSentinel AI combines rule-based detection, machine learning, adaptive feedback mechanisms, and explainable AI to provide accurate, transparent, and scalable fraud detection.
 
@@ -78,44 +76,44 @@ FraudSentinel AI combines rule-based detection, machine learning, adaptive feedb
 *High-level architecture of the FraudSentinel AI fraud detection system*
 
 
-## Screenshots
+## Portal Screenshots
 
-### Dashboard
-![Dashboard](docs/dashboard.png)
+| Login Page | Dashboard |
+|------------|-----------|
+| ![Login](docs/login.png) | ![Dashboard](docs/dashboard.png) |
 
-### Fraud Analysis
-![Fraud Analysis](docs/fraud-analysis.png)
+| Risk Analyzer | AI Insights |
+|---------------|----------------|
+| ![Risk Analyzer](docs/risk-analyzer.png) | ![AI Insights](docs/fraud-history.png) |
 
-### Transaction Monitoring
-![Transaction Monitoring](docs/monitoring.png)
+| Live Transaction | Transaction Detail |
+|---------------------|-----------------|
+| ![Live Transaction](docs/transaction-details.png) | ![Transaction Details](docs/user-management.png) |
+
+| Fraud History | Fraud Details |
+|---------------------|-----------------|
+| ![Transaction Details](docs/transaction-details.png) | ![Fraud Details](docs/user-management.png) |
+
+| User Management | User Detail |
+|---------------------|-----------------|
+| ![User Management](docs/transaction-details.png) | ![User Detail](docs/user-management.png) |
 
 
 ## Demo Video
 
 **Watch the full walkthrough (5 minutes):** [FraudSentinel AI Demo](https://youtu.be/YOUR_VIDEO_ID)
 
-The demo covers
+The demo covers,
 - Real-time fraud detection API calls
 - Dashboard walkthrough
 - Risk analyzer demonstration
 - Feedback loop showing adaptive learning
 - LLM explanation generation
 
-## Demo Video
+**Deployed Live Link** 
 
-**Watch the full walkthrough (5 minutes):** [FraudSentinel AI Demo](https://youtu.be/YOUR_VIDEO_ID)
-
-The demo covers
-- Real-time fraud detection API calls
-- Dashboard walkthrough
-- Risk analyzer demonstration
-- Feedback loop showing adaptive learning
-- LLM explanation generation
-
-## Live Demo
-
-- [Frontend](http://130.61.111.65:5002)
-- [Backend](http://130.61.111.65:5001/v1/api/)
+- [FraudSentinel AI Portal](http://130.61.111.65:5002)
+- [Backend APIs](http://130.61.111.65:5001/v1/api/)
 
 <!-- - **Frontend:** `http://130.61.111.65:5002`
 - **Backend API:** `http://130.61.111.65:5001/v1/api/` -->
@@ -252,8 +250,8 @@ After running the server, use these credentials to authenticate
 
 | Role | Email | Password |
 |------|-------|----------|
-| Admin | admin@fraudsentinel.com | admin123 |
-| Analyst | analyst@fraudsentinel.com | analyst123 |
+| Admin | admin@fraudsentinel.com | admin@123 |
+| Analyst | analyst@fraudsentinel.com | analyst@123 |
 
 💡 **Quick Demo Access:** Click the button on the right side of the login form to auto-fill Admin credentials, then press **Login**.
 
