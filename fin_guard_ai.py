@@ -166,7 +166,7 @@ def load_from_pickle(filename):
 def save_model_to_JobLib(model, filename):
     joblib.dump(model, filename)
     print(f"Model saved as {filename}")
-    
+
 #### Loading the saved model
 def load_model_from_JobLib(filename):
     model = joblib.load(filename)
@@ -182,7 +182,7 @@ def load_or_initialize_pickle(filename, data):
         with open(filename, 'wb') as file:
             pickle.dump(data, file)
         return data
-    
+
 def load_feedback():
     """Safely load feedback from JSON file."""
     if os.path.exists(FEEDBACK_FILE):
@@ -209,7 +209,7 @@ def prepare_data(file_path):
 
     logger.info("Loading and preprocessing data !!!!!!!!!!!!!!!!!!!!!!!!!!!")
    
-    # file_path = os.path.join(DATA_DIR, "fraud_detection_data (1).csv")
+    #file_path = os.path.join(DATA_DIR, "fraud_detection_data (1).csv")
     data = pd.read_csv(file_path)
     cols_to_check = ['Transaction_Amount', 'Device_Type', 'Transaction_Type', 'IP_Address']
     data.dropna(subset=cols_to_check, inplace=True)
@@ -331,7 +331,7 @@ def prepare_and_split_data():
         logger.error(f"Error in preparing and splitting data: {str(e)}")
         raise
 
-# Function to calculate feature importance weight
+#Function to calculate feature importance weight
 def calculate_feature_importance_weights():
     """ Calculate feature importance weights using RandomForest, Lasso, and XGBoost models """
 
@@ -611,7 +611,7 @@ def generate_llm_explanation(
     transaction_details,
     recommended_action
 ):
-    
+
     global SOVEREIGN_MODE
     
     if not SOVEREIGN_MODE:
@@ -2078,7 +2078,7 @@ def toggle_sovereign_mode(current_user):
         "sovereign_mode": SOVEREIGN_MODE,
         "llm_status": "enabled" if SOVEREIGN_MODE else "disabled"   # ← SWAPPED
     }), 200
-    
+
 @app.route('/v1/api/system/sovereign_mode', methods=['GET'])
 @token_required
 def get_sovereign_mode(current_user):
@@ -2088,7 +2088,7 @@ def get_sovereign_mode(current_user):
         "sovereign_mode": SOVEREIGN_MODE,
         "llm_status": "disabled" if SOVEREIGN_MODE else "enabled"
     }), 200
-    
+
 @app.route('/v1/api/audit_log', methods=['GET'])
 @token_required
 def get_audit_log(current_user):
@@ -2108,7 +2108,7 @@ def get_audit_log(current_user):
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
- 
+
 @app.route('/v1/api/system/stats', methods=['GET'])
 @token_required
 def system_stats(current_user):
@@ -2130,7 +2130,7 @@ def system_stats(current_user):
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-    
+
 @app.route('/v1/api/ethics/bias_mitigation', methods=['GET'])
 @token_required
 def bias_mitigation(current_user):
@@ -2168,7 +2168,7 @@ def bias_mitigation(current_user):
         "fairness_commitment": "We prioritize fairness and are actively monitoring for bias",
         "last_review": get_nairobi_time()
     })
-    
+
 @app.route('/v1/api/db/transactions', methods=['GET'])
 @token_required
 def get_transactions_from_db(current_user):

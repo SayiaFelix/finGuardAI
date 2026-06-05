@@ -19,7 +19,7 @@ load_dotenv()
 # SQLite database file 
 DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///database/fraudsentinel.db')
 
-# Create engine
+#engine
 engine = create_engine(
     DATABASE_URL,
     echo=False, 
@@ -47,7 +47,7 @@ class User(Base):
     created_at = Column(DateTime, default=get_nairobi_time)
     last_login = Column(DateTime, nullable=True)
     
-    # Relationships
+    #Relationships
     api_keys = relationship("APIKey", back_populates="user", cascade="all, delete-orphan")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
     
@@ -56,7 +56,7 @@ class User(Base):
         salt = bcrypt.gensalt()
         self.password_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
         return self
-    
+
     def check_password(self, password):
         """Verify password - works with detached session"""
         # This doesn't need database access, just compares strings
@@ -78,7 +78,7 @@ class APIKey(Base):
     created_at = Column(DateTime, default=get_nairobi_time)
     expires_at = Column(DateTime, nullable=True)
     
-    # Relationship
+    #Relationship
     user = relationship("User", back_populates="api_keys")
 
 class RefreshToken(Base):
@@ -91,7 +91,7 @@ class RefreshToken(Base):
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=get_nairobi_time)
     revoked = Column(Boolean, default=False)
-    
+
     # Relationship
     user = relationship("User", back_populates="refresh_tokens")
 
@@ -122,7 +122,7 @@ class Transaction(Base):
     """Matches exactly what you save in REAL_TIME_RISK_SCORES_PKL"""
     __tablename__ = 'transactions'
     
-    # Primary key
+    #Primary key
     id = Column(String, primary_key=True) 
     
     # Core fields
