@@ -1,5 +1,6 @@
 # FraudSentinel AI
 ### Real-Time Fraud Detection for African Financial Systems
+### AI-Powered Fraud Detection • Explainable AI • Risk Intelligence • Built for Africa
 
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://python.org)
 [![Flask](https://img.shields.io/badge/flask-2.3-red.svg)](https://flask.palletsprojects.com)
@@ -14,20 +15,32 @@
 > **BeOrchid Africa Hackathon 2026 - Top 30 Finalist** 🏆
 
 ## Beorchid Africa Developers Hackathon 2026
+### Executive Summary
 
-FraudSentinel AI is a production-ready fraud detection system designed specifically for African financial institutions. The project focuses on leveraging Artificial Intelligence to improve fraud detection, risk assessment, and financial security across African institutions. It combines a 7-model ensemble machine learning approach with rule-based detection, providing real-time risk scoring with sub-200ms latency.
+FraudSentinel AI is an AI-powered fraud detection and risk intelligence platform built for African financial institutions. The platform combines a 7-model machine learning ensemble, rule-based fraud detection, adaptive learning, and explainable AI to identify suspicious transactions in real time. The solution provides fraud risk scoring, investigation support, audit trails, and transparent AI-generated explanations while maintaining data sovereignty and regulatory compliance requirements.
+
+FraudSentinel AI is designed to help banks, fintechs, SACCOs, microfinance institutions, and mobile money providers reduce fraud losses and strengthen trust in digital financial services.
 
 ### Table of Contents
 
 - [Problem Statement](#problem-statement)
+- [Key Metrics](#key-metrics)
+- [Technology Stack](#technology-stack)
+- [Project Status](#project-status)
+- [Why FraudSentinel AI Matters](#why-fraudSentinel-ai-matters)
+- [Expected Impact](#expected-impact)
+- [Innovation Highlights](#innovation-highlights)
 - [System Architecture](#system-architecture)
 - [Portal Screenshots](#portal-screenshots)
 - [Demo Video](#demo-video)
+- [Live System Statistics](#live-system-statistics)
 - [Features](#features)
+- [Product Roadmap](#product-roadmap)
 - [How FraudSentinel AI Meets Stage 3 Criteria](#how-fraudsentinel-ai-meets-stage-3-criteria)
 - [Quick Start](#quick-start)
 - [Test Credentials](#test-credentials)
 - [Team](#team)
+
 
 ## Problem Statement
 
@@ -37,14 +50,77 @@ Financial institutions face evolving fraud tactics including synthetic identity 
 
 **FraudSentinel AI** combines machine learning (7-model ensemble), rule-based detection, adaptive feedback, and LLM-powered explainability to provide accurate, transparent, and scalable fraud detection built specifically for Africa's digital finance ecosystem.
 
+## Key Metrics
 
-### Project Status
+| Metric | Value |
+|----------|---------|
+| ML Models | 7 |
+| API Endpoints | 15+ |
+| Authentication | JWT + RBAC |
+| Explainability | Groq Llama 3.3 + Rule-Based Fallback |
+| Deployment | Live |
+| Risk Score Range | 0 – 10 |
+| Response Time | < 200 ms |
+| Storage | SQLite + Model Cache |
+
+## Technology Stack
+
+| Layer | Technology |
+|---------|------------|
+| Frontend | AngularJS |
+| Backend | Flask (Python) |
+| Machine Learning | Scikit-Learn, XGBoost, LightGBM, CatBoost |
+| LLM | Groq (Llama 3.3 70B) |
+| Authentication | JWT |
+| Database | SQLite |
+| Model Storage | Pickle |
+| Deployment | Linux Server |
+
+## Project Status
 
  - MVP Completed  
  - Backend API Completed  
  - Fraud Detection Engine Completed  
  - Explainability Layer Integrated  
  - Ready for Stage 3 Evaluation
+
+## Why FraudSentinel AI Matters
+
+Fraud remains one of the greatest threats to Africa's rapidly expanding digital economy. As mobile money, digital lending, and online banking continue to grow, financial institutions require intelligent systems capable of detecting emerging fraud patterns while maintaining customer trust.
+
+FraudSentinel AI helps organizations,
+
+- Detect fraud in real time
+- Reduce financial losses
+- Minimize false positives
+- Improve fraud investigation efficiency
+- Provide explainable decisions for auditors and regulators
+- Strengthen trust in digital financial services
+
+By combining machine learning, explainable AI, and adaptive learning, FraudSentinel AI enables institutions to move from reactive fraud response to proactive fraud prevention.
+
+## Expected Impact
+
+FraudSentinel AI is designed to help financial institutions
+
+- Reduce fraud-related financial losses
+- Detect suspicious transactions faster
+- Improve compliance and audit readiness
+- Reduce analyst workload through automation
+- Improve customer trust and platform security
+
+By combining AI-driven risk intelligence with explainable decision-making, FraudSentinel AI enables organizations to transition from reactive fraud response to proactive fraud prevention.
+
+## Innovation Highlights
+
+FraudSentinel AI differentiates itself through:
+
+- Hybrid fraud detection using both Machine Learning and Rule-Based Intelligence
+- Explainable AI powered by Groq Llama 3.3
+- Adaptive feedback loop that learns from analyst decisions
+- Sovereign Mode allowing operation without external AI dependency
+- Built specifically for African financial ecosystems
+- Modular architecture for seamless enterprise integration
 
 ## System Architecture
 ![Architecture](docs/architecture.png)
@@ -89,9 +165,9 @@ Financial institutions face evolving fraud tactics including synthetic identity 
 |---------------|----------------|
 | ![Risk Analyzer](docs/risk-analyzer.png) | ![AI Insights](docs/ai-insight.png) |
 
-| Live Transaction | Transaction Detail |
+| Live Transactions | Transaction Detail |
 |---------------------|-----------------|
-| ![Live Transaction](docs/transactions.png) | ![Transaction Details](docs/transactions-detail.png) |
+| ![Live Transactions](docs/transactions.png) | ![Transaction Details](docs/transactions-detail.png) |
 
 | Fraud History | Fraud Details |
 |---------------------|-----------------|
@@ -164,6 +240,18 @@ curl -X POST http://localhost:5001/v1/api/real_time_risk_score \
 
 ```
 
+## Live System Statistics
+
+- 7 Machine Learning Models
+- 15+ REST API Endpoints
+- Real-Time Risk Scoring
+- Explainable AI Responses
+- JWT Authentication
+- Role-Based Access Control
+- Audit Logging
+- Adaptive Learning Feedback Loop
+- Live Web Dashboard
+
 ## Features
 
 ### Fraud Detection Engine
@@ -201,6 +289,82 @@ curl -X POST http://localhost:5001/v1/api/real_time_risk_score \
 - **Password Reset** - Email reset or temporary password generation
 - **Account Management** - Enable/disable user accounts
 
+
+> FraudSentinel AI is not just a fraud detection system; it is a foundation for Africa's next generation of AI-powered financial risk intelligence.
+
+
+## Product Roadmap
+
+FraudSentinel AI is designed as a long-term fraud intelligence platform for African financial institutions.
+
+### Phase 1: MVP Foundation (Q2 2026) ✅ COMPLETED
+
+**Goal**
+Build a production-ready fraud detection platform capable of real-time risk scoring, explainability, and analyst feedback integration.
+
+**Delivered**
+- Real-time fraud risk scoring
+- 7-model ensemble machine learning engine
+- Rule-based fraud detection
+- Explainable AI integration
+- Audit logging and transaction history
+- Role-based access control (RBAC)
+- Analyst feedback learning loop
+- Live deployment and API endpoints
+
+### Phase 2: Enhanced Fraud Intelligence (Q3 2026)
+
+**Goal**
+Reduce false positives by 20% and improve fraud analyst productivity through behavioral intelligence and automated alerts.
+
+**Planned Features**
+- Device fingerprinting
+- Behavioral analytics
+- Dynamic risk thresholds
+- Real-time email and SMS alerts
+- Fraud investigation workspace
+- Advanced fraud reporting dashboards
+
+### Phase 3: Enterprise Integration (Q4 2026)
+
+**Goal**
+Enable seamless adoption by banks, fintechs, SACCOs, and mobile money providers through enterprise-grade integrations.
+
+**Planned Features**
+- Core banking integrations
+- M-Pesa integration
+- Airtel Money integration
+- MTN MoMo integration
+- Multi-tenant deployment
+- Regulatory reporting tools
+
+### Phase 4: AI-Powered Risk Intelligence (Q1–Q2 2027)
+
+**Goal**
+Move beyond fraud detection into predictive fraud prevention and intelligent investigation support.
+
+**Planned Features**
+- Fraud ring detection using graph analytics
+- Cross-account relationship analysis
+- AI fraud investigation assistant
+- Predictive fraud forecasting
+- Automated case prioritization
+
+### Phase 5: Pan-African Fraud Intelligence Network (2027+)
+
+**Goal**
+Create a collaborative fraud intelligence ecosystem capable of detecting cross-border threats across Africa.
+
+**Planned Features**
+- Cross-border fraud monitoring
+- Federated fraud intelligence sharing
+- Industry-wide fraud threat intelligence
+- Real-time consortium fraud detection
+- Pan-African fraud risk scoring framework
+
+### Long-Term Vision
+
+To become Africa's leading AI-powered fraud intelligence platform, helping financial institutions detect fraud faster, reduce losses, improve compliance, and strengthen trust across the continent's digital financial ecosystem.
 
 ## How FraudSentinel AI Meets Stage 3 Criteria
 
@@ -260,13 +424,18 @@ After running the server, use these credentials to authenticate
 
 *Run `python fin_guard_ai.py` first to create these users*
 
+
 ## Team
 
-### Team Lead
+### FraudSentinel AI
+
+**Team Lead**
 - Felix Sayia
 
-### Project
-- FraudSentinel AI
+**Role**
+- Data Scientist
+- Software Engineer
+- AI Solutions Architect
 
-### Event
+**Hackathon**
 - Beorchid Africa Developers Hackathon 2026
