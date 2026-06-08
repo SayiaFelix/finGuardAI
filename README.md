@@ -192,7 +192,7 @@ The demo covers,
 - [FraudSentinel AI Portal](http://130.61.111.65:5002)
 - [Backend APIs](http://130.61.111.65:5001/v1/api/)
 
-> *Note: The live demo may be temporarily unavailable during active development or server maintenance.*
+> *Note: If the live demo is temporarily unavailable, it may be due to active development or server maintenance*
 
 
 ## API Usage Examples
