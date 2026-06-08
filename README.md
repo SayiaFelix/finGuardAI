@@ -412,7 +412,7 @@ After running the server, use these credentials to authenticate
 | Role | Email | Password |
 |------|-------|----------|
 | Admin | admin@fraudsentinelAI.com | admin@123 |
-<!-- | Analyst | analyst@fraudsentinel.com | analyst@123 | -->
+<!-- | Analyst | analystJaey@fraudsentinel.ai | analyst@123 | -->
 
  💡 **Quick Demo Access:** Click the button on the right side of the login form to auto-fill Admin credentials, then press **Login**.
 
