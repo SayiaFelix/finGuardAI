@@ -15,7 +15,6 @@
 > **BeOrchid Africa Hackathon 2026 - Top 30 Finalist** 🏆
 
 ## Beorchid Africa Developers Hackathon 2026
-### Executive Summary
 
 FraudSentinel AI is an AI-powered fraud detection and risk intelligence platform built for African financial institutions. The platform combines a 7-model machine learning ensemble, rule-based fraud detection, adaptive learning, and explainable AI to identify suspicious transactions in real time. The solution provides fraud risk scoring, investigation support, audit trails, and transparent AI-generated explanations while maintaining data sovereignty and regulatory compliance requirements.
 
@@ -113,10 +112,10 @@ By combining AI-driven risk intelligence with explainable decision-making, Fraud
 
 ## Innovation Highlights
 
-FraudSentinel AI differentiates itself through:
+FraudSentinel AI differentiates itself through,
 
 - Hybrid fraud detection using both Machine Learning and Rule-Based Intelligence
-- Explainable AI powered by Groq Llama 3.3
+- Explainable AI powered by Groq Llama 3.3 with rule based as fall back
 - Adaptive feedback loop that learns from analyst decisions
 - Sovereign Mode allowing operation without external AI dependency
 - Built specifically for African financial ecosystems
@@ -180,7 +179,7 @@ FraudSentinel AI differentiates itself through:
 
 ## Demo Video
 
-**Watch the full walkthrough (5 minutes):** [FraudSentinel AI Demo](https://youtu.be/YOUR_VIDEO_ID)
+**Watch the full walkthrough (5 minutes):** [FraudSentinel AI Demo](https://youtu.be/I will update once i do the recording )
 
 The demo covers,
 - Real-time fraud detection API calls
@@ -194,14 +193,10 @@ The demo covers,
 - [FraudSentinel AI Portal](http://130.61.111.65:5002)
 - [Backend APIs](http://130.61.111.65:5001/v1/api/)
 
-<!-- - **Frontend:** `http://130.61.111.65:5002`
-- **Backend API:** `http://130.61.111.65:5001/v1/api/` -->
-
 > *Note: The live demo may be temporarily unavailable during active development or server maintenance.*
 
 
 ## API Usage Examples
-
 ### Submit a Transaction for Risk Scoring | Request
 
 #### curl Command
@@ -292,12 +287,11 @@ curl -X POST http://localhost:5001/v1/api/real_time_risk_score \
 
 > FraudSentinel AI is not just a fraud detection system; it is a foundation for Africa's next generation of AI-powered financial risk intelligence.
 
-
 ## Product Roadmap
 
 FraudSentinel AI is designed as a long-term fraud intelligence platform for African financial institutions.
 
-### Phase 1: MVP Foundation (Q2 2026) ✅ COMPLETED
+### Phase 1: MVP Foundation (Q2 2026) | COMPLETED
 
 **Goal**
 Build a production-ready fraud detection platform capable of real-time risk scoring, explainability, and analyst feedback integration.
@@ -417,10 +411,10 @@ After running the server, use these credentials to authenticate
 
 | Role | Email | Password |
 |------|-------|----------|
-| Admin | admin@fraudsentinel.com | admin@123 |
-| Analyst | analyst@fraudsentinel.com | analyst@123 |
+| Admin | admin@fraudsentinelAI.com | admin@123 |
+<!-- | Analyst | analyst@fraudsentinel.com | analyst@123 | -->
 
-💡 **Quick Demo Access:** Click the button on the right side of the login form to auto-fill Admin credentials, then press **Login**.
+ 💡 **Quick Demo Access:** Click the button on the right side of the login form to auto-fill Admin credentials, then press **Login**.
 
 *Run `python fin_guard_ai.py` first to create these users*
 
