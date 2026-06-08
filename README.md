@@ -30,7 +30,7 @@ FraudSentinel AI is designed to help banks, fintechs, SACCOs, microfinance insti
 - [Expected Impact](#expected-impact)
 - [Innovation Highlights](#innovation-highlights)
 - [System Architecture](#system-architecture)
-- [Portal Screenshots](#portal-screenshots)
+- [System Screenshots](#portal-screenshots)
 - [Demo Video](#demo-video)
 - [Features](#features)
 - [Product Roadmap](#product-roadmap)
