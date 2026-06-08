@@ -32,7 +32,6 @@ FraudSentinel AI is designed to help banks, fintechs, SACCOs, microfinance insti
 - [System Architecture](#system-architecture)
 - [Portal Screenshots](#portal-screenshots)
 - [Demo Video](#demo-video)
-- [Live System Statistics](#live-system-statistics)
 - [Features](#features)
 - [Product Roadmap](#product-roadmap)
 - [How FraudSentinel AI Meets Stage 3 Criteria](#how-fraudsentinel-ai-meets-stage-3-criteria)
@@ -234,18 +233,6 @@ curl -X POST http://localhost:5001/v1/api/real_time_risk_score \
 }
 
 ```
-
-## Live System Statistics
-
-- 7 Machine Learning Models
-- 15+ REST API Endpoints
-- Real-Time Risk Scoring
-- Explainable AI Responses
-- JWT Authentication
-- Role-Based Access Control
-- Audit Logging
-- Adaptive Learning Feedback Loop
-- Live Web Dashboard
 
 ## Features
 
