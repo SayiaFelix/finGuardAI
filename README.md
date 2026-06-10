@@ -190,7 +190,7 @@ The demo covers,
 **Deployed Live Link** 
 
 - [FraudSentinel AI Portal](http://130.61.111.65:5002)
-- [Backend APIs](http://130.61.111.65:5001/v1/api/)
+<!-- - [Backend APIs](http://130.61.111.65:5001/v1/api/) -->
 
 > *Note: If the live demo is temporarily unavailable, it may be due to active development or server maintenance*
 
@@ -201,7 +201,7 @@ The demo covers,
 #### curl Command
 
 ```bash
-curl -X POST http://localhost:5001/v1/api/real_time_risk_score \
+curl -X POST http://130.61.111.65:5001/v1/api/real_time_risk_score \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -d '{
