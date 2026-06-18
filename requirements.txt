@@ -1,18 +1,29 @@
+# Core Web Framework
 Flask
 flask-cors
+gunicorn
+
+# Data Processing
 numpy
 pandas
+
+# Machine Learning
+scikit-learn
 xgboost
 lightgbm
 catboost
-scikit-learn
-shap
 joblib
-gunicorn
-psycopg2-binary
+shap
+
+# Database
 sqlalchemy
+psycopg2-binary
+
+# Authentication
 PyJWT
 bcrypt
+
+# Utilitie
 python-dotenv
 pytz
 openai
