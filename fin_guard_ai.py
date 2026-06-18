@@ -13,6 +13,11 @@ import ipaddress
 from datetime import datetime
 from collections import Counter
 
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
+import threading
+import uuid
+
 # Third-party library imports
 import numpy as np
 import pandas as pd
@@ -71,6 +76,8 @@ else:
     client = None
     logger.warning("Groq Status: DISCONNECTED ✗ - No API key found")    
      
+ml_executor = ThreadPoolExecutor(max_workers=10)
+file_lock = threading.Lock() 
 
 # Cache location
 CACHE_DIR = os.path.join(os.path.dirname(__file__), 'cache')
@@ -382,7 +389,7 @@ def calculate_feature_importance_weights():
     
     return sorted_weights
 
-#  normalize_and_categorize_risk_scores
+# normalize_and_categorize_risk_scores
 def normalize_and_categorize_risk_scores():
   
     X_train, X_test, y_train, y_test = prepare_and_split_data()
@@ -600,10 +607,12 @@ def real_time_risk_scoring(transaction, models, weights_map):
     return risk_score, risk_category, transaction_details, recommended_action
 
 def generate_transaction_id():
-    random_letter = random.choice(string.ascii_uppercase)  
-    date_str = datetime.now().strftime("%Y%m%d")  
-    random_digits = f"{random.randint(0, 9999):04d}" 
-    return f"T{random_letter}{date_str}{random_digits}I" 
+    unique_id = uuid.uuid4().hex[:8].upper()
+    date_str = datetime.now().strftime("%Y%m%d")
+    random_letter = random.choice(string.ascii_uppercase)
+    random_digits = f"{random.randint(0, 999999):06d}" 
+    micro = datetime.now().strftime("%f")[:3] 
+    return f"T{random_letter}{date_str}{unique_id}{random_digits}{micro}I"
 
 def generate_llm_explanation(
     risk_score,
@@ -1109,275 +1118,366 @@ def normalized_scores_endpoint():
         }), 500
 
 @app.route('/v1/api/real_time_risk_score', methods=['POST'])
-@token_required  
+@token_required
 def real_time_risk_score_endpoint(current_user):
-    """Endpoint for real-time calculation and storage of risk scores with JSON feedback integration."""
+    """
+    ASYNC VERSION - SQLite as primary storage
+    """
     try:
-   
         data = request.json
         transaction_id = generate_transaction_id()
-        # transaction_id = data.get("transaction_id") or generate_transaction_id()
-        transaction_data = pd.Series(data, name=transaction_id)
-        timestamp = get_nairobi_time()
-
-        models = load_model_from_JobLib(RISK_MODELS_JOBLIB)
-        weights_pickle = load_from_pickle(IMPORTANT_FEATURES_WEIGHTS_PKL)
-        weights_map = weights_pickle['Combined_Weight']
-
-        stored_scores = load_or_initialize_pickle(REAL_TIME_RISK_SCORES_PKL, {})
-        stored_feedback = load_feedback()  # JSON feedback
-
-        existing_feedback = None
-        for fb in stored_feedback:
-            fb_signals = fb.get("signals", {})
-            # Use 5% tolerance for transaction amount similarity
-            if abs(transaction_data.get("Transaction_Amount", 0) - fb_signals.get("Transaction_Amount", 0)) / max(fb_signals.get("Transaction_Amount", 1), 1) < 0.05:
-                existing_feedback = fb
-                break
-
-        baseline_score, baseline_category, baseline_details, baseline_action = real_time_risk_scoring(
-            transaction_data, models, weights_map
-        )
-
-        tx_count_last_hour = data.get("tx_count_last_hour", 1)
-
-        adjusted_score, layer3_signals = layer3_lite_adjustment(
-            base_risk_score=baseline_score,
-            transaction_amount=transaction_data.get("Transaction_Amount", 0),
-            # avg_amount is NOT passed - will use dynamic logic
-            tx_count_last_hour=tx_count_last_hour
-        )
         
-        transaction_details = baseline_details.copy() if baseline_details else {}
-        recommended_action = baseline_action
-        
-        ## Override risk score ONLY if Layer 3 increases risk meaningfully
-        if adjusted_score > baseline_score:
-            risk_score = adjusted_score
+        def _process_transaction():
+            """Process transaction - SQLite is thread-safe"""
             
-            threshold = get_active_threshold()
-
-            if risk_score >= 8.0:
-                risk_category = "Critical Fraud Risk"
-            elif risk_score >= threshold:
-                risk_category = "High Potential Fraud"
-            elif risk_score >= 3.0:
-                risk_category = "Medium Risk"
-            else:
-                risk_category = "Low Potential Fraud"
+            transaction_data = pd.Series(data, name=transaction_id)
+            timestamp = get_nairobi_time()
             
-            transaction_details['Risk_Score'] = risk_score
+            # Load models
+            models = load_model_from_JobLib(RISK_MODELS_JOBLIB)
+            weights_pickle = load_from_pickle(IMPORTANT_FEATURES_WEIGHTS_PKL)
+            weights_map = weights_pickle['Combined_Weight']
             
-        else:
-            risk_score = baseline_score
-            risk_category = baseline_category
+            # Load feedback
+            stored_feedback = load_feedback()
             
-        feedback_effect = None
-
-        if existing_feedback:
-            print(f"Similar transaction found in feedback (ID: {existing_feedback['transaction_id']}). Adapting weights...")
-            adapted_weights = adapt_weights(transaction_data, existing_feedback['outcome'], IMPORTANT_FEATURES_WEIGHTS_PKL)
-
-            # Store baseline before recalculation
-            original_baseline_score = baseline_score
-            original_baseline_category = baseline_category
-
-            # Recalculating risk with adapted weights
-            risk_score, risk_category, adapted_details, adapted_action = real_time_risk_scoring(
-                transaction_data, models, adapted_weights
+            ###Check for existing feedback
+            existing_feedback = None
+            for fb in stored_feedback:
+                fb_signals = fb.get("signals", {})
+                tx_amount = transaction_data.get("Transaction_Amount", 0)
+                fb_amount = fb_signals.get("Transaction_Amount", 0)
+                if fb_amount > 0 and abs(tx_amount - fb_amount) / max(fb_amount, 1) < 0.05:
+                    existing_feedback = fb
+                    break
+            
+            # Run risk scoring
+            baseline_score, baseline_category, baseline_details, baseline_action = real_time_risk_scoring(
+                transaction_data, models, weights_map
             )
             
-            #Update with adapted values
-            transaction_details = adapted_details
-            recommended_action = adapted_action
-
-            feedback_effect = {
-                "original_score": original_baseline_score,
-                "adjusted_score": risk_score,
-                "original_category": original_baseline_category,
-                "adjusted_category": risk_category,
-                "difference": abs(risk_score - original_baseline_score),
-                "feedback_outcome": existing_feedback['outcome'],
-                "weights_adjusted": True
+            tx_count_last_hour = data.get("tx_count_last_hour", 1)
+            
+            adjusted_score, layer3_signals = layer3_lite_adjustment(
+                base_risk_score=baseline_score,
+                transaction_amount=transaction_data.get("Transaction_Amount", 0),
+                tx_count_last_hour=tx_count_last_hour
+            )
+            
+            transaction_details = baseline_details.copy() if baseline_details else {}
+            recommended_action = baseline_action
+            
+            if adjusted_score > baseline_score:
+                risk_score = adjusted_score
+                threshold = get_active_threshold()
+                if risk_score >= 8.0:
+                    risk_category = "Critical Fraud Risk"
+                elif risk_score >= threshold:
+                    risk_category = "High Potential Fraud"
+                elif risk_score >= 3.0:
+                    risk_category = "Medium Risk"
+                else:
+                    risk_category = "Low Potential Fraud"
+                transaction_details['Risk_Score'] = risk_score
+            else:
+                risk_score = baseline_score
+                risk_category = baseline_category
+            
+            feedback_effect = None
+            if existing_feedback:
+                print(f"Similar transaction found. Adapting weights...")
+                adapted_weights = adapt_weights(transaction_data, existing_feedback['outcome'], IMPORTANT_FEATURES_WEIGHTS_PKL)
+                original_baseline_score = baseline_score
+                original_baseline_category = baseline_category
+                risk_score, risk_category, adapted_details, adapted_action = real_time_risk_scoring(
+                    transaction_data, models, adapted_weights
+                )
+                transaction_details = adapted_details
+                recommended_action = adapted_action
+                feedback_effect = {
+                    "original_score": original_baseline_score,
+                    "adjusted_score": risk_score,
+                    "original_category": original_baseline_category,
+                    "adjusted_category": risk_category,
+                    "difference": abs(risk_score - original_baseline_score),
+                    "feedback_outcome": existing_feedback['outcome'],
+                    "weights_adjusted": True
+                }
+            
+            transaction_details["real_time_signals"] = layer3_signals
+            
+            # Generate explanations
+            rule_based_explanation = generate_fraud_explanation(
+                risk_score=risk_score,
+                risk_category=risk_category,
+                transaction_details=transaction_details
+            )
+            
+            llm_explanation = generate_llm_explanation(
+                risk_score=risk_score,
+                risk_category=risk_category,
+                transaction_details=transaction_details,
+                recommended_action=recommended_action
+            )
+            
+            final_explanation = llm_explanation if llm_explanation else rule_based_explanation
+            
+            customer_info = {
+                'customer_id': data.get('customer_id', f"CUST-{transaction_id[1:9]}"),
+                'customer_name': data.get('customer_name', f"Customer {transaction_id[1:9]}"),
+                'customer_email': data.get('customer_email', ''),
+                'customer_phone': data.get('customer_phone', ''),
+                'account_age_days': data.get('account_age_days', 0),
+                'avg_transaction_amount': data.get('avg_transaction_amount', 0)
             }
+            
+            # Prepare transaction data for SQLite
+            db_transaction_data = {
+                'transaction_id': transaction_id,
+                'timestamp': timestamp,
+                'risk_score': risk_score,
+                'risk_category': risk_category,
+                'transaction_details': transaction_details,
+                'customer_info': customer_info,
+                'recommended_action': recommended_action,
+                'explanations': {
+                    'rule_based': rule_based_explanation,
+                    'llm': llm_explanation,
+                    'final': final_explanation
+                },
+                'llm_status': 'connected' if client is not None else 'disconnected',
+                'model_version': MODEL_VERSION,
+                'threshold_used': get_active_threshold(),
+                'national_alert_mode': NATIONAL_ALERT_MODE,
+                'feedback_used': existing_feedback['transaction_id'] if existing_feedback else None,
+                'feedback_effect': feedback_effect,
+                'status': {'current': 'Open', 'history': []}
+            }
+            
+            # ============ ONLY SAVE TO SQLITE ============
+            # SQLite is thread-safe - no lock needed!
+            save_transaction_to_db(db_transaction_data)
+            logger.info(f"Transaction {transaction_id} saved to SQLite successfully!")
+            
+            # ============ OPTIONAL: Update pickle with LOCK ============
+            # Only update pickle if you need it for backward compatibility
+            with file_lock:
+                stored_scores = load_or_initialize_pickle(REAL_TIME_RISK_SCORES_PKL, {})
+                stored_scores[transaction_id] = db_transaction_data
+                save_to_pickle(stored_scores, REAL_TIME_RISK_SCORES_PKL)
+            
+            log_decision(transaction_id, risk_score, risk_category, recommended_action)
+            
+            result = {
+                'transaction_id': transaction_id,
+                'timestamp': timestamp,
+                'risk_score': risk_score,
+                'risk_category': risk_category,
+                'transaction_details': transaction_details,
+                'customer_info': customer_info,
+                'recommended_action': recommended_action,
+                'explanations': {
+                    'rule_based': rule_based_explanation,
+                    'llm': llm_explanation if llm_explanation else 'LLM not available',
+                    'final': final_explanation
+                },
+                'llm_status': 'connected' if client is not None else 'disconnected',
+                'feedback_used': existing_feedback['transaction_id'] if existing_feedback else None,
+                'feedback_effect': feedback_effect
+            }
+            
+            return convert_numpy_types(result)
         
-        transaction_details["real_time_signals"] = layer3_signals
+        # Submit to thread pool
+        future = ml_executor.submit(_process_transaction)
         
-        ## 1. Rule-based explanation
-        rule_based_explanation = generate_fraud_explanation(
-            risk_score=risk_score,
-            risk_category=risk_category,
-            transaction_details=transaction_details
-        )
-        #llm
-        llm_explanation = generate_llm_explanation(
-            risk_score=risk_score,
-            risk_category=risk_category,
-            transaction_details=transaction_details,
-            recommended_action=recommended_action
-        )
-        
-        ###3. Combined/Final explanation 
-        final_explanation = llm_explanation if llm_explanation else rule_based_explanation
-        
-        #Extracting customer information if provided
-        customer_info = {
-            'customer_id': data.get('customer_id', f"CUST-{transaction_id[1:9]}"),
-            'customer_name': data.get('customer_name', f"Customer {transaction_id[1:9]}"),
-            'customer_email': data.get('customer_email', ''),
-            'customer_phone': data.get('customer_phone', ''),
-            'account_age_days': data.get('account_age_days', 0),
-            'avg_transaction_amount': data.get('avg_transaction_amount', 0)
-        }
-        
-        stored_scores[transaction_id] = {
-            'timestamp': timestamp,
-            'risk_score': risk_score,
-            'risk_category': risk_category,
-            'transaction_details': transaction_details,
-            'recommended_action': recommended_action,
-            'customer_info': customer_info,
-            'explanations': {
-                'rule_based': rule_based_explanation,
-                'llm': llm_explanation,
-                'final': final_explanation
-            },
-            'llm_status': 'connected' if client is not None else 'disconnected',
-            'model_version': MODEL_VERSION,
-            'threshold_used': get_active_threshold(),
-            'national_alert_mode': NATIONAL_ALERT_MODE,
-            'feedback_used': existing_feedback['transaction_id'] if existing_feedback else None,
-            'feedback_effect': feedback_effect
-        }
-
-        log_decision(
-            transaction_id,
-            risk_score,
-            risk_category,
-            recommended_action
-        )
-        
-        save_to_pickle(stored_scores, REAL_TIME_RISK_SCORES_PKL)
-        
-        # Save to SQLite (dual storage)
-        db_transaction_data = stored_scores[transaction_id].copy()
-        db_transaction_data['transaction_id'] = transaction_id
-        save_transaction_to_db(db_transaction_data)
-        logger.info(f"Transaction {transaction_id} saved to database successfully !!!!!!!!!!!!")
-        
-        
-        result = {
-            'transaction_id': transaction_id,
-            'timestamp': timestamp,
-            'risk_score': risk_score,
-            'risk_category': risk_category,
-            'transaction_details': transaction_details,
-            'customer_info': customer_info,
-            'recommended_action': recommended_action,
-            'explanations': {
-                'rule_based': rule_based_explanation,
-                'llm': llm_explanation if llm_explanation else 'LLM not available - check OpenAI API key',
-                'final': final_explanation
-            },
-            'llm_status': 'connected' if client is not None else 'disconnected',
-            'feedback_used': existing_feedback['transaction_id'] if existing_feedback else None,
-            'feedback_effect': feedback_effect
-        }
-        
-        cleaned_result = convert_numpy_types(result)
+        try:
+            result = future.result(timeout=30)
+        except concurrent.futures.TimeoutError:
+            return jsonify({
+                'status': 'error',
+                'message': 'Processing timeout (30s)'
+            }), 504
         
         return jsonify({
             'status': 'success',
-            'message': 'Risk score was calculated successfully !!!!!!!!!!!!!!!!!!!',
-            'result': cleaned_result
+            'message': 'Risk score calculated successfully (async mode) !!!!!!!',
+            'async_mode': True,
+            'async_processing': True,
+            'result': result
         })
-
+        
     except Exception as e:
-        logger.error(f"Error in real-time risk scoring: {str(e)}")
+        logger.error(f"Async error: {str(e)}")
         return jsonify({
             'status': 'error',
-            'message': f'An error occurred: {str(e)}'
+            'message': str(e)
         }), 500
-
+    
+@app.route('/v1/api/batch_risk_scores_async', methods=['POST'])
+@token_required
+def batch_risk_scores_async(current_user):
+    """
+    Process multiple transactions in parallel
+    Handles 100+ transactions per minute
+    """
+    try:
+        data = request.json
+        transactions = data.get('transactions', [])
+        
+        if not transactions:
+            return jsonify({
+                'status': 'error',
+                'message': 'No transactions provided'
+            }), 400
+        
+        # Limit to 100 per batch (safety)
+        if len(transactions) > 100:
+            transactions = transactions[:100]
+        
+        # Process in parallel
+        def _process_single(tx):
+            """Process single transaction"""
+            try:
+                # Create a request context for each transaction
+                with app.test_request_context(json=tx):
+                    # FIXED: Call the correct endpoint name
+                    response = real_time_risk_score_endpoint(current_user)
+                    return response.json
+            except Exception as e:
+                return {'error': str(e), 'status': 'error'}
+        
+        # Run in parallel using thread pool
+        with ThreadPoolExecutor(max_workers=min(len(transactions), 20)) as executor:
+            results = list(executor.map(_process_single, transactions))
+        
+        # Calculate stats
+        success_count = sum(1 for r in results if r.get('status') == 'success')
+        error_count = len(results) - success_count
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Processed {len(transactions)} transactions',
+            'total_processed': len(transactions),
+            'success_count': success_count,
+            'error_count': error_count,
+            'results': results
+        })
+        
+    except Exception as e:
+        logger.error(f"Batch error: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+        
 @app.route('/v1/api/transactions', methods=['POST'])
 @token_required
 def transactions_endpoint(current_user):
+    """Get transactions from SQLite (primary)"""
     try:
         data = request.get_json() or {}
         transaction_id = data.get('transaction_id')
         
         if transaction_id:
-            transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
-
-            if not transactions:
-                return jsonify({
-                    'status': 'error',
-                    'message': 'No transactions data available !!!!!'
-                }), 500
-
-            ###Checking if the transaction exists
-            transaction = transactions.get(transaction_id)
-
-            if not transaction:
-                return jsonify({
-                    'status': 'error',
-                    'message': f'Transaction with ID {transaction_id} not found !!!!!!!!!!!!!'
-                }), 404
-
-            # Using the global convert_numpy_types function
-            cleaned_transaction = convert_numpy_types(transaction)
-            
-            risk_category = cleaned_transaction.get('risk_category', 'Unknown')
-            risk_score = float(cleaned_transaction.get('risk_score', 0))
-            timestamp = cleaned_transaction.get('timestamp', '')
-            transaction_details = cleaned_transaction.get('transaction_details', {})
-            recommended_action = cleaned_transaction.get('recommended_action', '')
-            customer_info = cleaned_transaction.get('customer_info', {})
-            
-            if risk_category in ['Critical Fraud Risk', 'High Potential Fraud']:
-                risk_level = 'HIGH_RISK'
-                status_message = f'Transaction ID {transaction_id} is flagged as {risk_category} !!!!!!!!!'
-            elif risk_category == 'Medium Risk':
-                risk_level = 'MEDIUM_RISK'
-                status_message = f'Transaction ID {transaction_id} has medium risk !!!!!!!!!!!!!'
-            else:
-                risk_level = 'LOW_RISK'
-                status_message = f'Transaction ID {transaction_id} has low risk !!!!!!!!!!!!'
-
-            active_threshold = get_active_threshold()
-            
-            
-            response_data = {
-                'status': 'success',
-                'message': status_message,
-                'transaction_id': transaction_id,
-                'timestamp': str(timestamp),
-                'risk_assessment': {
-                    'risk_score': float(risk_score),
-                    'risk_category': str(risk_category),
-                    'risk_alert_level': str(risk_level),
-                    'threshold': active_threshold,
-                    'is_high_risk': bool(risk_score >= active_threshold)
-                },
-                'transaction_details': transaction_details,
-                'customer_info': customer_info,
-                'recommended_action': str(recommended_action),
-                'explanations': cleaned_transaction.get('explanations', {}),
-                'llm_status': cleaned_transaction.get('llm_status', 'disconnected'),
-                'feedback_effect': cleaned_transaction.get('feedback_effect'),
-                'status_info': cleaned_transaction.get('status', {}) 
+            #SQLite first
+            try:
+                db = SessionLocal()
+                tx = db.query(Transaction).filter(
+                    Transaction.id == transaction_id
+                ).first()
+                db.close()
                 
-            }
-            
-            #Using convert_numpy_types again to ensure everything is serializable
-            final_response = convert_numpy_types(response_data)
-            return jsonify(final_response), 200
+                if tx:
+                    cleaned_transaction = {
+                        'transaction_id': tx.id,
+                        'timestamp': tx.timestamp.isoformat(),
+                        'risk_score': tx.risk_score,
+                        'risk_category': tx.risk_category,
+                        'transaction_details': tx.transaction_details,
+                        'customer_info': tx.customer_info,
+                        'recommended_action': tx.recommended_action,
+                        'explanations': tx.explanations,
+                        'llm_status': tx.llm_status,
+                        'feedback_effect': tx.feedback_effect,
+                        'status_info': tx.status
+                    }
+                    
+                    risk_category = cleaned_transaction.get('risk_category', 'Unknown')
+                    risk_score = float(cleaned_transaction.get('risk_score', 0))
+                    
+                    if risk_category in ['Critical Fraud Risk', 'High Potential Fraud']:
+                        risk_level = 'HIGH_RISK'
+                    elif risk_category == 'Medium Risk':
+                        risk_level = 'MEDIUM_RISK'
+                    else:
+                        risk_level = 'LOW_RISK'
+                    
+                    active_threshold = get_active_threshold()
+                    
+                    response_data = {
+                        'status': 'success',
+                        'message': 'Transaction found in SQLite',
+                        'transaction_id': transaction_id,
+                        'timestamp': cleaned_transaction.get('timestamp', ''),
+                        'risk_assessment': {
+                            'risk_score': float(risk_score),
+                            'risk_category': str(risk_category),
+                            'risk_alert_level': str(risk_level),
+                            'threshold': active_threshold,
+                            'is_high_risk': bool(risk_score >= active_threshold)
+                        },
+                        'transaction_details': cleaned_transaction.get('transaction_details', {}),
+                        'customer_info': cleaned_transaction.get('customer_info', {}),
+                        'recommended_action': cleaned_transaction.get('recommended_action', ''),
+                        'explanations': cleaned_transaction.get('explanations', {}),
+                        'llm_status': cleaned_transaction.get('llm_status', 'disconnected'),
+                        'feedback_effect': cleaned_transaction.get('feedback_effect'),
+                        'status_info': cleaned_transaction.get('status_info', {})
+                    }
+                    
+                    final_response = convert_numpy_types(response_data)
+                    return jsonify(final_response), 200
+                else:
+                    # Fallback to pickle
+                    transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+                    transaction = transactions.get(transaction_id)
+                    if transaction:
+                        cleaned_transaction = convert_numpy_types(transaction)
+                        return jsonify({
+                            'status': 'success',
+                            'message': 'Transaction found (pickle fallback)',
+                            **cleaned_transaction
+                        }), 200
+                    else:
+                        return jsonify({
+                            'status': 'error',
+                            'message': f'Transaction {transaction_id} not found'
+                        }), 404
+                        
+            except Exception as e:
+                logger.warning(f"SQLite read failed: {e}")
+                # Fallback to pickle
+                transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+                transaction = transactions.get(transaction_id)
+                if transaction:
+                    cleaned_transaction = convert_numpy_types(transaction)
+                    return jsonify({
+                        'status': 'success',
+                        'message': 'Transaction found (pickle fallback)',
+                        **cleaned_transaction
+                    }), 200
+                else:
+                    return jsonify({
+                        'status': 'error',
+                        'message': f'Transaction {transaction_id} not found'
+                    }), 404
             
         else:
+            ##all transactions - use SQLite
             page = data.get('page', 1)
             size = data.get('size', 10)
             
-            ## Validate pagination parameters
             if not isinstance(page, int) or page < 1:
                 return jsonify({
                     'status': 'error',
@@ -1389,64 +1489,100 @@ def transactions_endpoint(current_user):
                     'status': 'error',
                     'message': 'Size must be an integer between 1 and 100.'
                 }), 400
-
-            transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
-
-            if not transactions:
+            
+            try:
+                db = SessionLocal()
+                
+                # Get total count
+                total = db.query(Transaction).count()
+                
+                # Get paginated results
+                transactions = db.query(Transaction)\
+                    .order_by(desc(Transaction.timestamp))\
+                    .offset((page - 1) * size)\
+                    .limit(size)\
+                    .all()
+                
+                db.close()
+                
+                tx_list = []
+                for tx in transactions:
+                    tx_list.append({
+                        'transaction_id': tx.id,
+                        'timestamp': tx.timestamp.isoformat(),
+                        'risk_score': tx.risk_score,
+                        'risk_category': tx.risk_category,
+                        'transaction_details': tx.transaction_details,
+                        'customer_info': tx.customer_info,
+                        'recommended_action': tx.recommended_action,
+                        'explanations': tx.explanations,
+                        'llm_status': tx.llm_status,
+                        'model_version': tx.model_version,
+                        'threshold_used': tx.threshold_used,
+                        'feedback_used': tx.feedback_used,
+                        'feedback_effect': tx.feedback_effect,
+                        'status_info': tx.status
+                    })
+                
+                response_data = {
+                    'status': 'success',
+                    'message': f'Loaded {len(tx_list)} of {total} transactions from SQLite',
+                    'transactions': tx_list,
+                    'pagination': {
+                        'page': page,
+                        'size': size,
+                        'total': total,
+                        'has_more': (page * size) < total
+                    }
+                }
+                
+                final_response = convert_numpy_types(response_data)
+                return jsonify(final_response), 200
+                
+            except Exception as e:
+                logger.error(f"SQLite read error: {e}")
+                # Fallback to pickle
+                transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+                if not transactions:
+                    return jsonify({
+                        'status': 'success',
+                        'message': 'No transactions found.',
+                        'transactions': [],
+                        'total': 0
+                    }), 200
+                
+                tx_list = []
+                for tx_id, tx_data in transactions.items():
+                    cleaned_tx_data = convert_numpy_types(tx_data)
+                    tx_list.append({
+                        'transaction_id': tx_id,
+                        'timestamp': cleaned_tx_data.get('timestamp', ''),
+                        'risk_score': cleaned_tx_data.get('risk_score', 0),
+                        'risk_category': cleaned_tx_data.get('risk_category', ''),
+                        'transaction_details': cleaned_tx_data.get('transaction_details', {}),
+                        'customer_info': cleaned_tx_data.get('customer_info', {}),
+                        'recommended_action': cleaned_tx_data.get('recommended_action', ''),
+                        'explanations': cleaned_tx_data.get('explanations', {}),
+                        'llm_status': cleaned_tx_data.get('llm_status', 'disconnected')
+                    })
+                
+                tx_list.sort(key=lambda x: x['timestamp'], reverse=True)
+                total = len(tx_list)
+                start_idx = (page - 1) * size
+                end_idx = start_idx + size
+                paginated = tx_list[start_idx:end_idx]
+                
                 return jsonify({
                     'status': 'success',
-                    'message': 'No transactions found.',
-                    'transactions': [],
-                    'total': 0
+                    'message': f'Loaded {len(paginated)} of {total} transactions (pickle fallback)',
+                    'transactions': paginated,
+                    'pagination': {
+                        'page': page,
+                        'size': size,
+                        'total': total,
+                        'has_more': end_idx < total
+                    }
                 }), 200
-                
-            tx_list = []
-            for tx_id, tx_data in transactions.items():
-               
-                cleaned_tx_data = convert_numpy_types(tx_data)
-                
-                tx_list.append({
-                    'transaction_id': tx_id,
-                    'timestamp': cleaned_tx_data.get('timestamp', ''),
-                    'risk_score': cleaned_tx_data.get('risk_score', 0),
-                    'risk_category': cleaned_tx_data.get('risk_category', ''),
-                    'transaction_details': cleaned_tx_data.get('transaction_details', {}),
-                    'recommended_action': cleaned_tx_data.get('recommended_action', ''),
-                    'explanations': cleaned_tx_data.get('explanations', {}),
-                    'llm_status': cleaned_tx_data.get('llm_status', 'disconnected'),
-                    'model_version': cleaned_tx_data.get('model_version', MODEL_VERSION),
-                    'threshold_used': cleaned_tx_data.get('threshold_used', get_active_threshold()),
-                    'national_alert_mode': cleaned_tx_data.get('national_alert_mode', NATIONAL_ALERT_MODE),
-                    'feedback_used': cleaned_tx_data.get('feedback_used'),
-                    'feedback_effect': cleaned_tx_data.get('feedback_effect'),
-                    'customer_info': cleaned_tx_data.get('customer_info', {}),
-                    'status_info': cleaned_tx_data.get('status', {}) 
-                })
-
-            #Sorting by timestamp
-            tx_list.sort(key=lambda x: x['timestamp'], reverse=True)
-            
-            total = len(tx_list)
-            start_idx = (page - 1) * size
-            end_idx = start_idx + size
-            
-            paginated = tx_list[start_idx:end_idx]
-            
-            response_data = {
-                'status': 'success',
-                'message': f'Loaded {len(paginated)} of {total} transactions !!!!!!!!!!!!',
-                'transactions': paginated,
-                'pagination': {
-                    'page': page,
-                    'size': size,
-                    'total': total,
-                    'has_more': end_idx < total
-                }
-            }
-            
-            #Converting the entire response
-            final_response = convert_numpy_types(response_data)
-            return jsonify(final_response), 200
 
     except Exception as e:
         logger.error(f"Error in transactions endpoint: {str(e)}")
@@ -1458,8 +1594,8 @@ def transactions_endpoint(current_user):
 @app.route('/v1/api/transactions/related', methods=['POST'])
 @token_required
 def get_related_transactions(current_user):
+    """Get related transactions - SQLite first, pickle fallback"""
     try:
-
         data = request.get_json()
         
         if not data:
@@ -1476,150 +1612,257 @@ def get_related_transactions(current_user):
                 'message': 'transaction_id is required in the request body.'
             }), 400
     
-        transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
-        
-        if not transactions:
+        # Try SQLite first
+        try:
+            db = SessionLocal()
+            target_tx = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+            
+            if not target_tx:
+                db.close()
+                # Fallback to pickle
+                transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+                if transaction_id not in transactions:
+                    return jsonify({
+                        'status': 'error',
+                        'message': f'Transaction with ID {transaction_id} not found'
+                    }), 404
+                
+                # Use pickle for related search
+                target_tx_data = transactions[transaction_id]
+                target_details = target_tx_data.get('transaction_details', {})
+                target_customer = target_tx_data.get('customer_info', {})
+                
+                related = []
+                for tx_id, tx_data in transactions.items():
+                    if tx_id == transaction_id:
+                        continue
+                    
+                    tx_details = tx_data.get('transaction_details', {})
+                    tx_customer = tx_data.get('customer_info', {})
+                    
+                    relationship_score = 0
+                    relationship_reasons = []
+                    
+                    if target_customer.get('customer_id') and tx_customer.get('customer_id') == target_customer.get('customer_id'):
+                        relationship_score += 10
+                        relationship_reasons.append('same_customer')
+                    
+                    if target_details.get('IP_Address') and tx_details.get('IP_Address') == target_details.get('IP_Address'):
+                        relationship_score += 8
+                        relationship_reasons.append('same_ip')
+                    
+                    target_amount = target_details.get('Transaction_Amount', 0)
+                    tx_amount = tx_details.get('Transaction_Amount', 0)
+                    if target_amount > 0 and tx_amount > 0:
+                        amount_diff = abs(tx_amount - target_amount) / max(target_amount, 1)
+                        if amount_diff < 0.3:
+                            relationship_score += 5
+                            relationship_reasons.append('similar_amount')
+                    
+                    if relationship_score >= 5:
+                        if relationship_score >= 15:
+                            strength = 'strong'
+                        elif relationship_score >= 10:
+                            strength = 'medium'
+                        else:
+                            strength = 'weak'
+                        
+                        tx_data_clean = convert_numpy_types(tx_data)
+                        related.append({
+                            'transaction_id': tx_id,
+                            'timestamp': tx_data_clean.get('timestamp', ''),
+                            'risk_score': tx_data_clean.get('risk_score', 0),
+                            'risk_category': tx_data_clean.get('risk_category', ''),
+                            'amount': tx_details.get('Transaction_Amount', 0),
+                            'customer_info': tx_customer,
+                            'status_info': tx_data_clean.get('status', {}),
+                            'relationship': {
+                                'score': relationship_score,
+                                'strength': strength,
+                                'reasons': relationship_reasons
+                            }
+                        })
+                
+                related.sort(key=lambda x: (-x['relationship']['score'], x['timestamp']), reverse=True)
+                return jsonify({
+                    'status': 'success',
+                    'message': f'Found {len(related)} related transactions (pickle)',
+                    'related_transactions': related[:10]
+                }), 200
+            
+            # Use SQLite data
+            target_details = target_tx.transaction_details or {}
+            target_customer = target_tx.customer_info or {}
+            
+            # Get all transactions for relationship matching
+            all_txs = db.query(Transaction).all()
+            db.close()
+            
+            related = []
+            for tx in all_txs:
+                if tx.id == transaction_id:
+                    continue
+                
+                tx_details = tx.transaction_details or {}
+                tx_customer = tx.customer_info or {}
+                
+                relationship_score = 0
+                relationship_reasons = []
+                
+                # Same customer
+                if target_customer.get('customer_id') and tx_customer.get('customer_id') == target_customer.get('customer_id'):
+                    relationship_score += 10
+                    relationship_reasons.append('same_customer')
+                
+                # Same IP
+                if target_details.get('IP_Address') and tx_details.get('IP_Address') == target_details.get('IP_Address'):
+                    relationship_score += 8
+                    relationship_reasons.append('same_ip')
+                
+                # Similar amount (within 30%)
+                target_amount = target_details.get('Transaction_Amount', 0)
+                tx_amount = tx_details.get('Transaction_Amount', 0)
+                if target_amount > 0 and tx_amount > 0:
+                    amount_diff = abs(tx_amount - target_amount) / max(target_amount, 1)
+                    if amount_diff < 0.3:
+                        relationship_score += 5
+                        relationship_reasons.append('similar_amount')
+                
+                # Same location
+                if (target_details.get('Transaction_Location_International', 0) == 1 and 
+                    tx_details.get('Transaction_Location_International', 0) == 1):
+                    relationship_score += 4
+                    relationship_reasons.append('same_location_type')
+                elif (target_details.get('Transaction_Location_Local', 0) == 1 and 
+                      tx_details.get('Transaction_Location_Local', 0) == 1):
+                    relationship_score += 4
+                    relationship_reasons.append('same_location_type')
+                
+                # Same channel
+                if (target_details.get('Transaction_Type_Online', 0) == 1 and 
+                    tx_details.get('Transaction_Type_Online', 0) == 1):
+                    relationship_score += 3
+                    relationship_reasons.append('same_channel')
+                elif (target_details.get('Transaction_Type_POS', 0) == 1 and 
+                      tx_details.get('Transaction_Type_POS', 0) == 1):
+                    relationship_score += 3
+                    relationship_reasons.append('same_channel')
+                
+                if relationship_score >= 5:
+                    if relationship_score >= 15:
+                        strength = 'strong'
+                    elif relationship_score >= 10:
+                        strength = 'medium'
+                    else:
+                        strength = 'weak'
+                    
+                    related.append({
+                        'transaction_id': tx.id,
+                        'timestamp': tx.timestamp.isoformat(),
+                        'risk_score': tx.risk_score,
+                        'risk_category': tx.risk_category,
+                        'amount': tx_details.get('Transaction_Amount', 0),
+                        'customer_info': tx_customer,
+                        'status_info': tx.status,
+                        'relationship': {
+                            'score': relationship_score,
+                            'strength': strength,
+                            'reasons': relationship_reasons
+                        }
+                    })
+            
+            related.sort(key=lambda x: (-x['relationship']['score'], x['timestamp']), reverse=True)
+            
             return jsonify({
                 'status': 'success',
-                'message': 'No transactions found',
-                'related_transactions': []
+                'message': f'Found {len(related)} related transactions',
+                'related_transactions': related[:10]
             }), 200
-        
-        if transaction_id not in transactions:
+            
+        except Exception as e:
+            logger.warning(f"SQLite related query failed: {e}")
+            # Fallback to pickle
+            transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+            if transaction_id not in transactions:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Transaction with ID {transaction_id} not found'
+                }), 404
+            
+            target_tx_data = transactions[transaction_id]
+            target_details = target_tx_data.get('transaction_details', {})
+            target_customer = target_tx_data.get('customer_info', {})
+            
+            related = []
+            for tx_id, tx_data in transactions.items():
+                if tx_id == transaction_id:
+                    continue
+                
+                tx_details = tx_data.get('transaction_details', {})
+                tx_customer = tx_data.get('customer_info', {})
+                
+                relationship_score = 0
+                relationship_reasons = []
+                
+                if target_customer.get('customer_id') and tx_customer.get('customer_id') == target_customer.get('customer_id'):
+                    relationship_score += 10
+                    relationship_reasons.append('same_customer')
+                
+                if target_details.get('IP_Address') and tx_details.get('IP_Address') == target_details.get('IP_Address'):
+                    relationship_score += 8
+                    relationship_reasons.append('same_ip')
+                
+                target_amount = target_details.get('Transaction_Amount', 0)
+                tx_amount = tx_details.get('Transaction_Amount', 0)
+                if target_amount > 0 and tx_amount > 0:
+                    amount_diff = abs(tx_amount - target_amount) / max(target_amount, 1)
+                    if amount_diff < 0.3:
+                        relationship_score += 5
+                        relationship_reasons.append('similar_amount')
+                
+                if relationship_score >= 5:
+                    if relationship_score >= 15:
+                        strength = 'strong'
+                    elif relationship_score >= 10:
+                        strength = 'medium'
+                    else:
+                        strength = 'weak'
+                    
+                    tx_data_clean = convert_numpy_types(tx_data)
+                    related.append({
+                        'transaction_id': tx_id,
+                        'timestamp': tx_data_clean.get('timestamp', ''),
+                        'risk_score': tx_data_clean.get('risk_score', 0),
+                        'risk_category': tx_data_clean.get('risk_category', ''),
+                        'amount': tx_details.get('Transaction_Amount', 0),
+                        'customer_info': tx_customer,
+                        'status_info': tx_data_clean.get('status', {}),
+                        'relationship': {
+                            'score': relationship_score,
+                            'strength': strength,
+                            'reasons': relationship_reasons
+                        }
+                    })
+            
+            related.sort(key=lambda x: (-x['relationship']['score'], x['timestamp']), reverse=True)
             return jsonify({
-                'status': 'error',
-                'message': f'Transaction with ID {transaction_id} not found'
-            }), 404
-        
-        #target transaction
-        target_tx = transactions[transaction_id]
-        target_details = target_tx.get('transaction_details', {})
-        target_customer = target_tx.get('customer_info', {})
-        
-        #key identifiers for relationship matching
-        target_ip = target_details.get('IP_Address')
-        target_amount = target_details.get('Transaction_Amount', 0)
-        target_customer_id = target_customer.get('customer_id')
-        
-        #extract device type from features
-        target_device_unknown = target_details.get('Device_Type_Unknown_Device', 0)
-        target_device_iphone = target_details.get('Device_Type_iPhone', 0)
-        target_device_android = target_details.get('Device_Type_Android', 0)
-        target_device_mac = target_details.get('Device_Type_MacBook', 0)
-        
-        related = []
-        
-        for tx_id, tx_data in transactions.items():
-            if tx_id == transaction_id:
-                continue
-                
-            tx_details = tx_data.get('transaction_details', {})
-            tx_customer = tx_data.get('customer_info', {})
-            
-            relationship_score = 0
-            relationship_reasons = []
-            
-            #customer ID (strongest relationship)
-            if target_customer_id and tx_customer.get('customer_id') == target_customer_id:
-                relationship_score += 10
-                relationship_reasons.append('same_customer')
-            
-            #IP address
-            if target_ip and tx_details.get('IP_Address') == target_ip:
-                relationship_score += 8
-                relationship_reasons.append('same_ip')
-            
-            #device type
-            if (target_device_unknown and tx_details.get('Device_Type_Unknown_Device', 0) == 1):
-                relationship_score += 7
-                relationship_reasons.append('same_device_type')
-            elif (target_device_iphone and tx_details.get('Device_Type_iPhone', 0) == 1):
-                relationship_score += 7
-                relationship_reasons.append('same_device_type')
-            elif (target_device_android and tx_details.get('Device_Type_Android', 0) == 1):
-                relationship_score += 7
-                relationship_reasons.append('same_device_type')
-            elif (target_device_mac and tx_details.get('Device_Type_MacBook', 0) == 1):
-                relationship_score += 7
-                relationship_reasons.append('same_device_type')
-            
-            #amount (within 30%)
-            tx_amount = tx_details.get('Transaction_Amount', 0)
-            if target_amount > 0 and tx_amount > 0:
-                amount_diff = abs(tx_amount - target_amount) / max(target_amount, 1)
-                if amount_diff < 0.3:
-                    relationship_score += 5
-                    relationship_reasons.append('similar_amount')
-            
-            #location type
-            if (target_details.get('Transaction_Location_International', 0) == 1 and 
-                tx_details.get('Transaction_Location_International', 0) == 1):
-                relationship_score += 4
-                relationship_reasons.append('same_location_type')
-            elif (target_details.get('Transaction_Location_Local', 0) == 1 and 
-                  tx_details.get('Transaction_Location_Local', 0) == 1):
-                relationship_score += 4
-                relationship_reasons.append('same_location_type')
-            
-            #transaction type
-            if (target_details.get('Transaction_Type_Online', 0) == 1 and 
-                tx_details.get('Transaction_Type_Online', 0) == 1):
-                relationship_score += 3
-                relationship_reasons.append('same_channel')
-            elif (target_details.get('Transaction_Type_POS', 0) == 1 and 
-                  tx_details.get('Transaction_Type_POS', 0) == 1):
-                relationship_score += 3
-                relationship_reasons.append('same_channel')
-            
-            # If relationship score is high enough, include it
-            if relationship_score >= 5:
-                #relationship strength
-                if relationship_score >= 15:
-                    strength = 'strong'
-                elif relationship_score >= 10:
-                    strength = 'medium'
-                else:
-                    strength = 'weak'
-                
-    
-                tx_data_clean = convert_numpy_types(tx_data)
-                
-                related.append({
-                    'transaction_id': tx_id,
-                    'timestamp': tx_data_clean.get('timestamp', ''),
-                    'risk_score': tx_data_clean.get('risk_score', 0),
-                    'risk_category': tx_data_clean.get('risk_category', ''),
-                    'amount': tx_details.get('Transaction_Amount', 0),
-                    'customer_info': tx_customer,
-                    'status_info': tx_data_clean.get('status', {}),
-                    'relationship': {
-                        'score': relationship_score,
-                        'strength': strength,
-                        'reasons': relationship_reasons
-                    }
-                })
-        
-        # Sort by relationship score (highest first) and then by timestamp
-        related.sort(key=lambda x: (-x['relationship']['score'], x['timestamp']), reverse=True)
-        
-        return jsonify({
-            'status': 'success',
-            'message': f'Found {len(related)} related transactions',
-            'related_transactions': related[:10]  
-        }), 200
-        
+                'status': 'success',
+                'message': f'Found {len(related)} related transactions (pickle fallback)',
+                'related_transactions': related[:10]
+            }), 200
+                    
     except Exception as e:
         logger.error(f"Error fetching related transactions: {str(e)}")
         return jsonify({
             'status': 'error',
             'message': f'Internal server error: {str(e)}'
         }), 500
-        
+
 @app.route('/v1/api/transactions_delete', methods=['POST'])
 @token_required
 def delete_transaction(current_user):
     """
-    Delete a specific transaction by ID (ID provided in JSON body).
+    Delete a specific transaction by ID - SQLite first, pickle fallback
     """
     try:
         data = request.get_json()
@@ -1638,40 +1881,59 @@ def delete_transaction(current_user):
                 'message': 'transaction_id is required in the request body.'
             }), 400
         
-        transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+        deleted = False
+        deleted_data = None
         
-        if not transactions:
-            return jsonify({
-                'status': 'error',
-                'message': 'No transactions found.'
-            }), 404
+        # Try SQLite first
+        try:
+            db = SessionLocal()
+            tx = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+            
+            if tx:
+                deleted_data = {
+                    'transaction_id': tx.id,
+                    'risk_score': tx.risk_score,
+                    'risk_category': tx.risk_category
+                }
+                db.delete(tx)
+                db.commit()
+                deleted = True
+                logger.info(f"Transaction {transaction_id} deleted from SQLite")
+            
+            db.close()
+            
+        except Exception as e:
+            logger.warning(f"SQLite delete failed: {e}")
         
-        # Checking if transaction exists
-        if transaction_id not in transactions:
-            logger.warning(f"Transaction {transaction_id} not found in storage")
-
+        # Also delete from pickle
+        try:
+            with file_lock:
+                transactions = load_or_initialize_pickle(REAL_TIME_RISK_SCORES_PKL, {})
+                if transaction_id in transactions:
+                    if not deleted_data:
+                        deleted_data = {
+                            'transaction_id': transaction_id,
+                            'risk_score': transactions[transaction_id].get('risk_score'),
+                            'risk_category': transactions[transaction_id].get('risk_category')
+                        }
+                    del transactions[transaction_id]
+                    save_to_pickle(transactions, REAL_TIME_RISK_SCORES_PKL)
+                    deleted = True
+                    logger.info(f"Transaction {transaction_id} deleted from pickle")
+        except Exception as e:
+            logger.warning(f"Pickle delete failed: {e}")
+        
+        if not deleted:
             return jsonify({
                 'status': 'error',
                 'message': f'Transaction with ID {transaction_id} not found.'
             }), 404
         
-        deleted_transaction = transactions.pop(transaction_id)
-
-        save_to_pickle(transactions, REAL_TIME_RISK_SCORES_PKL)
-        
-        verify_transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
-     
-        logger.info(f"Transaction {transaction_id} deleted successfully")
-        
         return jsonify({
             'status': 'success',
             'message': f'Transaction {transaction_id} deleted successfully.',
-            'deleted_transaction': {
-                'transaction_id': transaction_id,
-                'risk_score': deleted_transaction.get('risk_score'),
-                'risk_category': deleted_transaction.get('risk_category')
-            },
-            'remaining_count': len(transactions)
+            'deleted_transaction': deleted_data,
+            'remaining_count': len(load_from_pickle(REAL_TIME_RISK_SCORES_PKL))
         }), 200
         
     except Exception as e:
@@ -1685,7 +1947,8 @@ def delete_transaction(current_user):
 @token_required
 def get_fraud_history(current_user):
     """
-    Endpoint to get all transactions flagged as High Potential Fraud OR Critical Fraud Risk.
+    Get all transactions flagged as High Potential Fraud OR Critical Fraud Risk
+    SQLite first, pickle fallback
     """
     try:
         data = request.get_json()
@@ -1693,7 +1956,7 @@ def get_fraud_history(current_user):
         page = data.get('page', 1) if data else 1
         size = data.get('size', 10) if data else 10
         
-        # Validate pagination parameters
+        # Validate pagination
         if not isinstance(page, int) or page < 1:
             return jsonify({
                 'status': 'error',
@@ -1706,93 +1969,148 @@ def get_fraud_history(current_user):
                 'message': 'Size must be an integer between 1 and 100.'
             }), 400
 
-        transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
-
-        if not transactions:  
-            return jsonify({
-                'status': 'success',
-                'message': 'No transactions found.',
-                'fraud_transactions': [],
-                'pagination': {
-                    'page': page,
-                    'size': size,
-                    'total': 0,
-                    'total_pages': 0,
-                    'has_next': False,
-                    'has_prev': False
-                }
-            }), 200
-
-        ###Filter transactions that are flagged as High Potential Fraud OR Critical Fraud Risk
-        fraud_transactions = {}
-        for tx_id, tx_data in transactions.items():
-            risk_category = tx_data.get('risk_category', '')
-            if risk_category in ['High Potential Fraud', 'Critical Fraud Risk']:
-                fraud_transactions[tx_id] = tx_data
-
-        if not fraud_transactions:
-            return jsonify({
-                'status': 'success',
-                'message': 'No fraud transactions found.',
-                'fraud_transactions': [],
-                'pagination': {
-                    'page': page,
-                    'size': size,
-                    'total': 0,
-                    'total_pages': 0,
-                    'has_next': False,
-                    'has_prev': False
-                }
-            }), 200
-
-        fraud_list = []
-        for tx_id, tx_data in fraud_transactions.items():
-            # Convert numpy types for each transaction
-            cleaned_tx_data = convert_numpy_types(tx_data)
+        # Try SQLite first
+        try:
+            db = SessionLocal()
             
-            fraud_list.append({
-                'transaction_id': tx_id,
-                'timestamp': cleaned_tx_data.get('timestamp', ''),
-                'risk_score': cleaned_tx_data.get('risk_score', 0),
-                'risk_category': cleaned_tx_data.get('risk_category', ''),
-                'transaction_details': cleaned_tx_data.get('transaction_details', {}),
-                'recommended_action': cleaned_tx_data.get('recommended_action', ''),
-                'explanations': cleaned_tx_data.get('explanations', {}),
-                'customer_info': cleaned_tx_data.get('customer_info', {}),
-                'status_info': cleaned_tx_data.get('status', {}) 
-                
-            })
-
-        #Sorting by risk score 
-        fraud_list.sort(key=lambda x: (-x['risk_score'], x['timestamp']), reverse=True)
-
-        total = len(fraud_list)
-        total_pages = max(1, (total + size - 1) // size) 
-   
-        if page > total_pages:
-            page = total_pages
-        
-        start_idx = (page - 1) * size
-        end_idx = start_idx + size
-        paginated_results = fraud_list[start_idx:end_idx]
-        
-        ###Convert the entire response
-        response_data = {
-            'status': 'success',
-            'message': f'Found {total} fraud transactions !!!!!!!!!!!',
-            'fraud_transactions': paginated_results,
-            'pagination': {
-                'page': page,
-                'size': size,
-                'total': total,
-                'total_pages': total_pages,
-                'has_next': page < total_pages,
-                'has_prev': page > 1
-            }
-        }
-        
-        final_response = convert_numpy_types(response_data)
-        return jsonify(final_response), 200
+            # Get total count of fraud transactions
+            total = db.query(Transaction).filter(
+                Transaction.risk_category.in_(['High Potential Fraud', 'Critical Fraud Risk'])
+            ).count()
+            
+            if total == 0:
+                db.close()
+                return jsonify({
+                    'status': 'success',
+                    'message': 'No fraud transactions found.',
+                    'fraud_transactions': [],
+                    'pagination': {
+                        'page': page,
+                        'size': size,
+                        'total': 0,
+                        'total_pages': 0,
+                        'has_next': False,
+                        'has_prev': False
+                    }
+                }), 200
+            
+            # Get paginated results
+            fraud_txs = db.query(Transaction)\
+                .filter(Transaction.risk_category.in_(['High Potential Fraud', 'Critical Fraud Risk']))\
+                .order_by(desc(Transaction.risk_score))\
+                .offset((page - 1) * size)\
+                .limit(size)\
+                .all()
+            
+            db.close()
+            
+            total_pages = max(1, (total + size - 1) // size)
+            
+            fraud_list = []
+            for tx in fraud_txs:
+                fraud_list.append({
+                    'transaction_id': tx.id,
+                    'timestamp': tx.timestamp.isoformat(),
+                    'risk_score': tx.risk_score,
+                    'risk_category': tx.risk_category,
+                    'transaction_details': tx.transaction_details,
+                    'recommended_action': tx.recommended_action,
+                    'explanations': tx.explanations,
+                    'customer_info': tx.customer_info,
+                    'status_info': tx.status
+                })
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'Found {total} fraud transactions',
+                'fraud_transactions': fraud_list,
+                'pagination': {
+                    'page': page,
+                    'size': size,
+                    'total': total,
+                    'total_pages': total_pages,
+                    'has_next': page < total_pages,
+                    'has_prev': page > 1
+                }
+            }), 200
+            
+        except Exception as e:
+            logger.warning(f"SQLite fraud history failed: {e}")
+            # Fallback to pickle
+            transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+            
+            if not transactions:
+                return jsonify({
+                    'status': 'success',
+                    'message': 'No transactions found.',
+                    'fraud_transactions': [],
+                    'pagination': {
+                        'page': page,
+                        'size': size,
+                        'total': 0,
+                        'total_pages': 0,
+                        'has_next': False,
+                        'has_prev': False
+                    }
+                }), 200
+            
+            fraud_transactions = {}
+            for tx_id, tx_data in transactions.items():
+                risk_category = tx_data.get('risk_category', '')
+                if risk_category in ['High Potential Fraud', 'Critical Fraud Risk']:
+                    fraud_transactions[tx_id] = tx_data
+            
+            if not fraud_transactions:
+                return jsonify({
+                    'status': 'success',
+                    'message': 'No fraud transactions found.',
+                    'fraud_transactions': [],
+                    'pagination': {
+                        'page': page,
+                        'size': size,
+                        'total': 0,
+                        'total_pages': 0,
+                        'has_next': False,
+                        'has_prev': False
+                    }
+                }), 200
+            
+            fraud_list = []
+            for tx_id, tx_data in fraud_transactions.items():
+                cleaned_tx_data = convert_numpy_types(tx_data)
+                fraud_list.append({
+                    'transaction_id': tx_id,
+                    'timestamp': cleaned_tx_data.get('timestamp', ''),
+                    'risk_score': cleaned_tx_data.get('risk_score', 0),
+                    'risk_category': cleaned_tx_data.get('risk_category', ''),
+                    'transaction_details': cleaned_tx_data.get('transaction_details', {}),
+                    'recommended_action': cleaned_tx_data.get('recommended_action', ''),
+                    'explanations': cleaned_tx_data.get('explanations', {}),
+                    'customer_info': cleaned_tx_data.get('customer_info', {}),
+                    'status_info': cleaned_tx_data.get('status', {})
+                })
+            
+            fraud_list.sort(key=lambda x: (-x['risk_score'], x['timestamp']), reverse=True)
+            total = len(fraud_list)
+            total_pages = max(1, (total + size - 1) // size)
+            
+            start_idx = (page - 1) * size
+            end_idx = start_idx + size
+            paginated_results = fraud_list[start_idx:end_idx]
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'Found {total} fraud transactions (pickle fallback)',
+                'fraud_transactions': paginated_results,
+                'pagination': {
+                    'page': page,
+                    'size': size,
+                    'total': total,
+                    'total_pages': total_pages,
+                    'has_next': page < total_pages,
+                    'has_prev': page > 1
+                }
+            }), 200
 
     except Exception as e:
         logger.error(f"Error in fraud-history endpoint: {str(e)}")
@@ -1800,12 +2118,12 @@ def get_fraud_history(current_user):
             'status': 'error',
             'message': f'Internal server error: {str(e)}'
         }), 500
-                
+   
 @app.route("/v1/api/fraud_feedback", methods=["POST"])
 @token_required
 def fraud_feedback(current_user):
     """
-    Endpoint to handle fraud feedback from users or analysts.
+    Endpoint to handle fraud feedback - SQLite first, pickle fallback
     """
     try:
         data = request.json
@@ -1816,21 +2134,45 @@ def fraud_feedback(current_user):
         if not all([transaction_id, feedback]):
             return jsonify({"error": "transaction_id and feedback are required"}), 400
 
-        stored_transactions = load_or_initialize_pickle(REAL_TIME_RISK_SCORES_PKL, {})
+        ##Check if transaction exists in SQLite
+        tx_exists = False
+        try:
+            db = SessionLocal()
+            tx = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+            if tx:
+                tx_exists = True
+            db.close()
+        except Exception as e:
+            logger.warning(f"SQLite feedback check failed: {e}")
 
-        if transaction_id not in stored_transactions:
-            return jsonify({
-                "error": f"Transaction with ID {transaction_id} not found in records."
-            }), 404
-
+        ##pickle as fallback
+        if not tx_exists:
+            stored_transactions = load_or_initialize_pickle(REAL_TIME_RISK_SCORES_PKL, {})
+            if transaction_id not in stored_transactions:
+                return jsonify({
+                    "error": f"Transaction with ID {transaction_id} not found in records."
+                }), 404
+        
         if signals is None:
-            transaction_details = stored_transactions[transaction_id].get("transaction_details", {})
-            signals = transaction_details  
+            # Try SQLite first
+            try:
+                db = SessionLocal()
+                tx = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+                if tx and tx.transaction_details:
+                    signals = tx.transaction_details
+                db.close()
+            except Exception:
+                pass
+            
+            if signals is None:
+                stored_transactions = load_or_initialize_pickle(REAL_TIME_RISK_SCORES_PKL, {})
+                transaction_details = stored_transactions[transaction_id].get("transaction_details", {})
+                signals = transaction_details
 
         store_feedback(transaction_id, feedback, signals)
         adapt_weights(signals, feedback)
         
-        # Save to SQLite
+        ##Save to SQLite
         save_feedback_to_db(transaction_id, feedback, signals)
 
         return jsonify({"message": f"Feedback for transaction {transaction_id} processed successfully !!!!!!"}), 200
@@ -1938,6 +2280,7 @@ def update_transaction_status(current_user):
 @app.route('/v1/api/get_transactions/status', methods=['POST'])
 @token_required
 def get_transaction_status(current_user):
+    """Get transaction status - SQLite first, pickle fallback"""
     try:
         data = request.get_json()
         
@@ -1955,6 +2298,23 @@ def get_transaction_status(current_user):
                 'message': 'transaction_id is required in the request body.'
             }), 400
         
+        # Try SQLite first
+        try:
+            db = SessionLocal()
+            tx = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+            db.close()
+            
+            if tx:
+                return jsonify({
+                    'status': 'success',
+                    'transaction_id': transaction_id,
+                    'current_status': tx.status or 'Open',
+                    'last_updated': tx.timestamp.isoformat()
+                }), 200
+        except Exception as e:
+            logger.warning(f"SQLite status read failed: {e}")
+        
+        # Fallback to pickle
         transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
         
         if not transactions or transaction_id not in transactions:
@@ -1963,13 +2323,12 @@ def get_transaction_status(current_user):
                 'message': f'Transaction with ID {transaction_id} not found.'
             }), 404
         
-        #status info
         status_info = transactions[transaction_id].get('status', {
             'current': 'Open',
             'history': [],
             'last_updated': transactions[transaction_id].get('timestamp')
         })
-    
+        
         status_info_clean = convert_numpy_types(status_info)
         
         return jsonify({
@@ -1986,12 +2345,12 @@ def get_transaction_status(current_user):
             'status': 'error',
             'message': f'Internal server error: {str(e)}'
         }), 500
-    
+
 @app.route('/v1/api/model_metrics', methods=['GET'])
 @token_required
 def model_metrics_endpoint(current_user):
     try:
-        # Checking if metrics pickle already exists
+        ##Checking if metrics pickle already exists
         if os.path.exists(MODEL_METRICS_PKL):
          
             metrics_data = load_from_pickle(MODEL_METRICS_PKL)
@@ -2112,13 +2471,22 @@ def get_audit_log(current_user):
 @app.route('/v1/api/system/stats', methods=['GET'])
 @token_required
 def system_stats(current_user):
-    """Return system statistics"""
+    """Return system statistics - SQLite first, pickle fallback"""
     try:
-     
-        transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
-        tx_count = len(transactions) if transactions else 0
+        tx_count = 0
         
-        avg_response = 187  
+        # Try SQLite first
+        try:
+            db = SessionLocal()
+            tx_count = db.query(Transaction).count()
+            db.close()
+        except Exception as e:
+            logger.warning(f"SQLite stats failed: {e}")
+            # Fallback to pickle
+            transactions = load_from_pickle(REAL_TIME_RISK_SCORES_PKL)
+            tx_count = len(transactions) if transactions else 0
+        
+        avg_response = 187  # ms
         
         return jsonify({
             'status': 'success',
@@ -2130,44 +2498,6 @@ def system_stats(current_user):
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-@app.route('/v1/api/ethics/bias_mitigation', methods=['GET'])
-@token_required
-def bias_mitigation(current_user):
-
-    return jsonify({
-        "status": "active",
-        "approach": "Built-in bias mitigation strategies",
-        "implemented_measures": [
-            {
-                "measure": "Balanced Class Weights",
-                "description": "All 7 models use class_weight='balanced' to handle imbalanced data",
-                "status": "Implemented"
-            },
-            {
-                "measure": "Ensemble Consensus",
-                "description": "7-model ensemble reduces risk of individual model bias",
-                "status": "Implemented"
-            },
-            {
-                "measure": "Feature Selection",
-                "description": "Features selected without demographic proxies",
-                "status": "Implemented"
-            },
-            {
-                "measure": "Human Feedback Loop",
-                "description": "Analyst feedback helps correct systematic errors",
-                "status": "Implemented"
-            }
-        ],
-        "next_steps": [
-            "Implement statistical fairness metrics (demographic parity, equal opportunity)",
-            "Regular bias audits on production data",
-            "Automated fairness reporting"
-        ],
-        "fairness_commitment": "We prioritize fairness and are actively monitoring for bias",
-        "last_review": get_nairobi_time()
-    })
 
 @app.route('/v1/api/db/transactions', methods=['GET'])
 @token_required
@@ -2213,6 +2543,23 @@ def get_transactions_from_db(current_user):
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+@app.route('/v1/api/queue_status', methods=['GET'])
+@token_required
+def get_queue_status(current_user):
+    """Get current queue status"""
+    from concurrent.futures import ThreadPoolExecutor
+    
+    ###active threads count (approximate)
+    active_threads = threading.active_count()
+    
+    return jsonify({
+        'status': 'success',
+        'thread_pool_max_workers': ml_executor._max_workers,
+        'active_threads': active_threads,
+        'async_mode': True,
+        'message': f'Can handle {ml_executor._max_workers} concurrent requests'
+    })
+    
 @app.route('/v1/api/db/stats', methods=['GET'])
 @token_required
 def get_db_stats(current_user):
@@ -2240,7 +2587,7 @@ def get_db_stats(current_user):
         
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
-
+  
 @app.route('/v1/api/test', methods=['GET'])
 def test():
     return "Testing endpoint, fraud detection apis working effectively !!!!!!!!!!!!"

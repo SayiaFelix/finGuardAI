@@ -178,12 +178,10 @@ def get_db():
 def save_transaction_to_db(transaction_data):
     db = SessionLocal()
     try:
-        ### Converting to native Python types for JSON storage
         transaction_details = convert_for_json(transaction_data.get('transaction_details', {}))
         customer_info = convert_for_json(transaction_data.get('customer_info', {}))
         explanations = convert_for_json(transaction_data.get('explanations', {}))
         
-        # Parse timestamp
         timestamp_str = transaction_data.get('timestamp')
         if timestamp_str:
             try:
@@ -193,7 +191,6 @@ def save_transaction_to_db(transaction_data):
         else:
             timestamp = get_nairobi_time()
         
-        #transaction object
         db_transaction = Transaction(
             id=transaction_data.get('transaction_id'),
             timestamp=timestamp,
@@ -213,26 +210,24 @@ def save_transaction_to_db(transaction_data):
             llm_status=transaction_data.get('llm_status', 'disconnected')
         )
         
-        # Merge or insert (upsert)
+        # Upsert
         existing = db.query(Transaction).filter(Transaction.id == transaction_data.get('transaction_id')).first()
         if existing:
-            # Update existing
             for key, value in db_transaction.__dict__.items():
                 if not key.startswith('_') and key != 'id':
                     setattr(existing, key, value)
             db.commit()
-            print(f" Updated transaction {transaction_data.get('transaction_id')} in SQLite")
+            print(f"Updated transaction {transaction_data.get('transaction_id')} in SQLite")
         else:
-            # Insert new
             db.add(db_transaction)
             db.commit()
-            print(f" Saved transaction {transaction_data.get('transaction_id')} to SQLite")
+            print(f"Saved transaction {transaction_data.get('transaction_id')} to SQLite")
             
         return True
         
     except Exception as e:
         db.rollback()
-        print(f" Database error: {e}")
+        print(f"Database error: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -281,5 +276,4 @@ def convert_for_json(obj):
     else:
         return obj
 
-# Initialize database (create tables)
 init_database()
