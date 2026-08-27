@@ -47,7 +47,6 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from openai import OpenAI
 
-
 weights_map = load_weights()
 
 
@@ -145,6 +144,11 @@ NATIONAL_ALERT_MODE = False
 
 DEFAULT_THRESHOLD = 6.0
 ALERT_THRESHOLD = 4.0
+
+# In-memory storage for FINCA demo
+finca_transactions = {}
+finca_alerts = {}
+finca_cases = {}
 
 def get_active_threshold():
     return ALERT_THRESHOLD if NATIONAL_ALERT_MODE else DEFAULT_THRESHOLD
@@ -473,57 +477,58 @@ def real_time_risk_scoring(transaction, models, weights_map):
     fraud_votes = sum(predictions)
     total_models = len(models)
     
-    ##RULE-BASED DETECTION ENGINE
-    # This complements ML models by capturing known fraud patterns
+    ## RULE-BASED DETECTION ENGINE
     rule_flagged = False
     rule_reasons = []
     rule_severity = 0  
     
-    ## Rule 1: Unknown device (common fraud indicator)
+    ## Rule 1: Unknown device
     if transaction.get('Device_Type_Unknown_Device', 0) == 1:
         rule_flagged = True
         rule_reasons.append("Unknown device")
         rule_severity += 2
     
-    ####Rule 2: International transaction (higher risk)
+    ## Rule 2: International transaction
     if transaction.get('Transaction_Location_International', 0) == 1:
         rule_flagged = True
         rule_reasons.append("International location")
         rule_severity += 2
     
-    ## Rule 3: Weekend night transaction (unusual hours)
+    ## Rule 3: Weekend night transaction
     if transaction.get('Is_Weekend', 0) == 1 and transaction.get('Transaction_Period_Evening', 0) == 1:
         rule_flagged = True
         rule_reasons.append("Weekend evening transaction")
         rule_severity += 1
     
-    ### Rule 4: Amount exceeds threshold (KES 100,000)
+    ## Rule 4: Amount exceeds threshold
     if transaction.get('Transaction_Amount', 0) > 100000:
         rule_flagged = True
-        rule_reasons.append("Amount exceeds KES 100,000")
+        rule_reasons.append("Amount exceeds threshold")
         rule_severity += 1
     
-    ## Rule 5: High transaction frequency (velocity check)
+    ## Rule 5: High transaction frequency
     if transaction.get('Transaction_Frequency', 0) > 5:
         rule_flagged = True
         rule_reasons.append("High transaction frequency")
         rule_severity += 2
     
-    ###Rule 6: Unusual transaction hour (late night)
+    ## Rule 6: Unusual transaction hour
     if transaction.get('Transaction_Hour', 0) < 5 or transaction.get('Transaction_Hour', 0) > 23:
         rule_flagged = True
         rule_reasons.append("Unusual transaction hour")
         rule_severity += 1
     
-    #Combining ML votes with rule flags for final decision
-    total_flags = fraud_votes
+    total_flags = fraud_votes  # 
+    
     if rule_flagged:
-        total_flags = max(fraud_votes, 1)
-        
+        # Add rule severity boost
         if rule_severity >= 4:
             total_flags = max(total_flags, 2)
         elif rule_severity >= 6:
             total_flags = max(total_flags, 3)
+        
+        # Ensure at least 1 flag if rule triggered
+        total_flags = max(total_flags, 1)
     
     if rule_flagged:
         print(f"\nRULE ENGINE TRIGGERED:")
@@ -544,21 +549,16 @@ def real_time_risk_scoring(transaction, models, weights_map):
         if feature in transaction and transaction[feature] == 1:
             feature_score += 2 
     
-    # Normalize feature score
     normalized_feature_score = min(feature_score / 10, 1.0)
     
-    ### Adding rule influence to feature score (for hybrid scoring)
     if rule_flagged:
-    
         rule_boost = min(rule_severity / 10, 0.3)  
         normalized_feature_score = min(normalized_feature_score + rule_boost, 1.0)
     
-    #### Combining scores: 60% model probability, 20% voting, 20% features
     final_score = (0.6 * avg_probability + 
                    0.2 * (total_flags / total_models) + 
                    0.2 * normalized_feature_score)
     
-    # Scale to 0-10 range
     risk_score = round(final_score * 10, 2)
     
     threshold = get_active_threshold()
@@ -579,8 +579,8 @@ def real_time_risk_scoring(transaction, models, weights_map):
     transaction_details = {
         'Transaction_Amount': transaction.get('Transaction_Amount', 0),
         'Risk_Score': risk_score,
-        'Model_Agreement': f"{total_flags}/{total_models} models flagged as fraud",
-        'ML_Votes': f"{fraud_votes}/{total_models}",  
+        'Model_Agreement': f"{total_flags}/{total_models} models flagged as fraud",  # ← total_flags
+        'ML_Votes': f"{total_flags}/{total_models}",  # ← FIXED: now same as Model_Agreement
         'Rule_Engine': {
             'triggered': rule_flagged,
             'rules': rule_reasons,
@@ -717,9 +717,12 @@ def build_llm_prompt(
 def generate_fraud_explanation(risk_score, risk_category, transaction_details):
     """
     Generates a human-readable explanation for ALL risk categories
-    (Low, Medium, High, Critical).
+    
+    NOTE: risk_score should be in the SAME scale as the response
+    - For Real-time API: 0-10 scale
+    - For FINCA API: 0-100 scale
     """
-
+    
     amount = transaction_details.get("Transaction_Amount", 0)
     model_agreement = transaction_details.get(
         "Model_Agreement", "multiple models evaluated this transaction"
@@ -750,41 +753,42 @@ def generate_fraud_explanation(risk_score, risk_category, transaction_details):
 
     signals_text = ", ".join(signals)
 
-    if risk_category == "Low Potential Fraud":
-        explanation = (
-            f"This transaction was assessed as Low Potential Fraud with a risk score of "
-            f"{round(risk_score, 2)}. The transaction aligns closely with the "
-            f"customer’s typical behavior and historical transaction patterns. "
-            f"Only minimal risk indicators were observed, including {signals_text}. "
-            f"As a result, the transaction was approved while remaining under routine monitoring."
-        )
-
-    elif risk_category == "Medium Risk":
-        explanation = (
-            f"This transaction was classified as Medium Potential Fraud with a risk score of "
-            f"{round(risk_score, 2)}. While the transaction does not strongly indicate fraud, "
-            f"the system detected {signals_text}, which slightly deviates from normal patterns. "
-            f"As a precaution, additional verification is recommended to confirm transaction legitimacy."
-        )
-
-    elif risk_category == "High Potential Fraud":
-        explanation = (
-            f"This transaction was flagged as High Potential Fraud with a risk score of "
-            f"{round(risk_score, 2)}. The system detected {signals_text}, along with behavioral patterns "
-            f"that differ significantly from the customer’s historical activity. "
-            f"These indicators are consistent with known fraud scenarios observed across similar accounts. "
-            f"Immediate review by the fraud investigation team is recommended. "
-            f"({model_agreement})."
-        )
-
-    else:  # Critical Fraud Risk
+    # Determine explanation based on risk_category string
+    risk_category_lower = risk_category.lower()
+    
+    if "critical" in risk_category_lower:
         explanation = (
             f"This transaction was identified as Critical Fraud Risk with a risk score of "
-            f"{round(risk_score, 2)}. Strong risk signals were detected, including {signals_text}, "
+            f"{round(risk_score, 1)}. Strong risk signals were detected, including {signals_text}, "
             f"and a high level of consensus among fraud detection models. "
             f"The observed patterns closely resemble confirmed fraud cases, posing a significant threat "
             f"of financial loss. As a result, the transaction was blocked automatically and escalated "
             f"for immediate investigation. ({model_agreement})."
+        )
+    elif "high" in risk_category_lower:
+        explanation = (
+            f"This transaction was flagged as High Potential Fraud with a risk score of "
+            f"{round(risk_score, 1)}. The system detected {signals_text}, along with behavioral patterns "
+            f"that differ significantly from the customer's historical activity. "
+            f"These indicators are consistent with known fraud scenarios observed across similar accounts. "
+            f"Immediate review by the fraud investigation team is recommended. "
+            f"({model_agreement})."
+        )
+    elif "medium" in risk_category_lower:
+        explanation = (
+            f"This transaction was classified as Medium Risk with a risk score of "
+            f"{round(risk_score, 1)}. While the transaction does not strongly indicate fraud, "
+            f"the system detected {signals_text}, which slightly deviates from normal patterns. "
+            f"As a precaution, additional verification is recommended to confirm transaction legitimacy."
+        )
+    else:
+        # Low Potential Fraud
+        explanation = (
+            f"This transaction was assessed as Low Potential Fraud with a risk score of "
+            f"{round(risk_score, 1)}. The transaction aligns closely with the "
+            f"customer's typical behavior and historical transaction patterns. "
+            f"Only minimal risk indicators were observed, including {signals_text}. "
+            f"As a result, the transaction was approved while remaining under routine monitoring."
         )
 
     return explanation
@@ -2592,5 +2596,525 @@ def get_db_stats(current_user):
 def test():
     return "Testing endpoint, fraud detection apis working effectively !!!!!!!!!!!!"
 
+
+
+# ============================================
+# FINCA UGANDA FRAUD GUARD ROUTES
+# ============================================
+
+
+
+def generate_finca_id(prefix):
+    """Generate FINCA-style ID"""
+    import random
+    import string
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    random_suffix = ''.join(random.choices(string.digits, k=4))
+    return f"{prefix}{timestamp}_{random_suffix}"
+
+@app.route('/finca/v1/health', methods=['GET'])
+def finca_health():
+    """FINCA health check endpoint"""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'FINCA Fraud Guard',
+        'timestamp': get_nairobi_time(),
+        'engine': 'FinGuardAI v1.0.0',
+        'endpoints': {
+            'transactions': '/finca/v1/transactions',
+            'alerts': '/finca/v1/alerts',
+            'cases': '/finca/v1/cases',
+            'dashboard': '/finca/v1/dashboard'
+        }
+    })
+
+@app.route('/finca/v1/transactions', methods=['POST'])
+@token_required
+def finca_submit_transaction(current_user):
+    """
+    FINCA Transaction Submission
+    """
+    try:
+        data = request.json
+        
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': 'No data provided'
+            }), 400
+        
+        #customer_id (both formats)
+        customer_id = data.get('customer_id') or data.get('Customer_ID')
+        
+        #transaction_amount (both formats)
+        transaction_amount = data.get('transaction_amount') or data.get('Transaction_Amount')
+        
+        if not customer_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required field: customer_id or Customer_ID'
+            }), 400
+        
+        if not transaction_amount:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required field: transaction_amount or Transaction_Amount'
+            }), 400
+        
+        # Normalize: add both formats so downstream code works
+        data['customer_id'] = customer_id
+        data['transaction_amount'] = transaction_amount
+        data['Customer_ID'] = customer_id
+        data['Transaction_Amount'] = transaction_amount
+        
+        # ============================================
+        # Continue with processing...
+        # ============================================
+        from finca_adapter import get_adapter
+        adapter = get_adapter()
+        
+        # Generate transaction ID
+        tx_id = generate_finca_id('TXN')
+    
+        result = adapter.analyze(data)
+        
+        if result is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'Risk Engine analysis failed'
+            }), 500
+        
+        # Build customer info
+        customer_info = {
+            'customer_id': customer_id,
+            'customer_name': data.get('customer_name', data.get('Customer_Name', f"Customer {tx_id[1:9]}")),
+            'customer_email': data.get('customer_email', data.get('Customer_Email', '')),
+            'customer_phone': data.get('customer_phone', data.get('Customer_Phone', '')),
+            'account_age_days': data.get('account_age_days', data.get('Account_Age_Days', 0)),
+            'avg_transaction_amount': data.get('avg_transaction_amount', data.get('Avg_Transaction_Amount', 0))
+        }
+        
+        # Build transaction details
+        transaction_details = result.get('transaction_details', {})
+        
+        # Generate explanations
+        rule_based_explanation = generate_fraud_explanation(
+            risk_score=result['risk_score'],
+            risk_category=result['risk_level'],
+            transaction_details=transaction_details
+        )
+        
+        llm_explanation = generate_llm_explanation(
+            risk_score=result['risk_score'] / 10,
+            risk_category=result['risk_level'],
+            transaction_details=transaction_details,
+            recommended_action=result.get('recommended_action', '')
+        )
+        
+        final_explanation = llm_explanation if llm_explanation else rule_based_explanation
+        
+        # ============================================
+        # CREATE ALERTS AND CASES (FINCA-specific)
+        # ============================================
+        alert_id = None
+        case_id = None
+        
+        if result['risk_level'] in ['HIGH', 'CRITICAL']:
+            alert_id = generate_finca_id('ALT')
+            finca_alerts[alert_id] = {
+                'id': alert_id,
+                'transaction_id': tx_id,
+                'customer_id': customer_id,
+                'risk_score': result['risk_score'],
+                'risk_level': result['risk_level'],
+                'triggered_rules': result.get('triggered_rules', []),
+                'reasons': result.get('reasons', []),
+                'decision': result.get('decision', ''),
+                'status': 'NEW',
+                'created_at': datetime.now().isoformat(),
+                'assigned_to': None
+            }
+            
+            if result['risk_level'] == 'CRITICAL':
+                case_id = generate_finca_id('CASE')
+                finca_cases[case_id] = {
+                    'id': case_id,
+                    'alert_id': alert_id,
+                    'customer_id': customer_id,
+                    'risk_score': result['risk_score'],
+                    'risk_level': result['risk_level'],
+                    'status': 'OPEN',
+                    'priority': 'URGENT',
+                    'assigned_to': None,
+                    'notes': [],
+                    'timeline': [
+                        {
+                            'timestamp': datetime.now().isoformat(),
+                            'action': 'Case created from critical alert',
+                            'actor': 'System'
+                        }
+                    ],
+                    'resolution': None,
+                    'created_at': datetime.now().isoformat()
+                }
+        
+        db_transaction_data = {
+            'transaction_id': tx_id,
+            'timestamp': get_nairobi_time(),
+            'risk_score': result['risk_score'],
+            'risk_category': result['risk_level'],
+            'transaction_details': transaction_details,
+            'customer_info': customer_info,
+            'recommended_action': result.get('recommended_action', ''),
+            'explanations': {
+                'rule_based': rule_based_explanation,
+                'llm': llm_explanation,
+                'final': final_explanation
+            },
+            'llm_status': 'connected' if client is not None else 'disconnected',
+            'model_version': MODEL_VERSION,
+            'threshold_used': get_active_threshold(),
+            'national_alert_mode': NATIONAL_ALERT_MODE,
+            'feedback_used': None,
+            'feedback_effect': None,
+            'status': {'current': 'Open', 'history': []}
+        }
+        
+        # Save to SQLite
+        save_transaction_to_db(db_transaction_data)
+        
+        # Save to pickle
+        with file_lock:
+            stored_scores = load_or_initialize_pickle(REAL_TIME_RISK_SCORES_PKL, {})
+            stored_scores[tx_id] = db_transaction_data
+            save_to_pickle(stored_scores, REAL_TIME_RISK_SCORES_PKL)
+        
+        # Log decision
+        log_decision(tx_id, result['risk_score'], result['risk_level'], result.get('recommended_action', ''))
+        
+        finca_transactions[tx_id] = {
+            'id': tx_id,
+            'customer_id': customer_id,
+            'amount': transaction_amount,
+            'data': data,
+            'result': result,
+            'alert_id': alert_id,
+            'case_id': case_id,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        response = {
+            'status': 'success',
+            'message': 'Risk score calculated successfully (async mode) !!!!!!!',
+            'async_mode': True,
+            'async_processing': True,
+            'result': {
+                'transaction_id': tx_id,
+                'timestamp': get_nairobi_time(),
+                'risk_score': result['risk_score'],
+                'risk_category': result['risk_level'],
+                'transaction_details': transaction_details,
+                'customer_info': customer_info,
+                'recommended_action': result.get('recommended_action', ''),
+                'explanations': {
+                    'rule_based': rule_based_explanation,
+                    'llm': llm_explanation if llm_explanation else 'LLM not available',
+                    'final': final_explanation
+                },
+                'llm_status': 'connected' if client is not None else 'disconnected',
+                'feedback_used': None,
+                'feedback_effect': None
+            }
+        }
+        
+        response['finca_specific'] = {
+            'alert_id': alert_id,
+            'case_id': case_id,
+            'customer_id': customer_id,
+            'customer_name': data.get('customer_name', data.get('Customer_Name', '')),
+            'transaction_amount': transaction_amount,
+            'channel': data.get('channel', data.get('Channel', '')),
+            'device_type': data.get('device_type', data.get('Device_Type', '')),
+            'location': data.get('location', data.get('Location', ''))
+        }
+        
+        logger.info(f"FINCA Transaction {tx_id}: {result['risk_level']} - {result.get('decision', 'UNKNOWN')}")
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        logger.error(f"FINCA transaction error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+        
+
+@app.route('/finca/v1/transactions', methods=['GET'])
+@token_required
+def finca_list_transactions(current_user):
+    """List FINCA transactions"""
+    page = request.args.get('page', 1, type=int)
+    size = request.args.get('size', 20, type=int)
+    
+    tx_list = list(finca_transactions.values())
+    tx_list.sort(key=lambda x: x['timestamp'], reverse=True)
+    
+    start = (page - 1) * size
+    end = start + size
+    
+    return jsonify({
+        'status': 'success',
+        'transactions': tx_list[start:end],
+        'pagination': {
+            'page': page,
+            'size': size,
+            'total': len(tx_list),
+            'total_pages': (len(tx_list) + size - 1) // size
+        }
+    })
+
+@app.route('/finca/v1/transactions/<tx_id>', methods=['GET'])
+@token_required
+def finca_get_transaction(current_user, tx_id):
+    """Get single FINCA transaction"""
+    tx = finca_transactions.get(tx_id)
+    if not tx:
+        return jsonify({
+            'status': 'error',
+            'message': 'Transaction not found'
+        }), 404
+    return jsonify(tx)
+
+@app.route('/finca/v1/alerts', methods=['GET'])
+@token_required
+def finca_list_alerts(current_user):
+    """List FINCA alerts"""
+    status = request.args.get('status')
+    alerts = list(finca_alerts.values())
+    
+    if status:
+        alerts = [a for a in alerts if a['status'] == status]
+    
+    return jsonify({
+        'status': 'success',
+        'alerts': alerts,
+        'total': len(alerts)
+    })
+
+@app.route('/finca/v1/alerts/<alert_id>', methods=['GET'])
+@token_required
+def finca_get_alert(current_user, alert_id):
+    """Get single alert"""
+    alert = finca_alerts.get(alert_id)
+    if not alert:
+        return jsonify({
+            'status': 'error',
+            'message': 'Alert not found'
+        }), 404
+    return jsonify(alert)
+
+@app.route('/finca/v1/alerts/<alert_id>/assign', methods=['POST'])
+@token_required
+def finca_assign_alert(current_user, alert_id):
+    """Assign alert to analyst"""
+    alert = finca_alerts.get(alert_id)
+    if not alert:
+        return jsonify({
+            'status': 'error',
+            'message': 'Alert not found'
+        }), 404
+    
+    data = request.json
+    analyst = data.get('analyst')
+    
+    if not analyst:
+        return jsonify({
+            'status': 'error',
+            'message': 'Analyst name required'
+        }), 400
+    
+    alert['assigned_to'] = analyst
+    alert['status'] = 'ASSIGNED'
+    alert['assigned_at'] = datetime.now().isoformat()
+    
+    return jsonify({
+        'status': 'success',
+        'alert': alert
+    })
+
+@app.route('/finca/v1/cases', methods=['GET'])
+@token_required
+def finca_list_cases(current_user):
+    """List FINCA cases"""
+    status = request.args.get('status')
+    cases = list(finca_cases.values())
+    
+    if status:
+        cases = [c for c in cases if c['status'] == status]
+    
+    return jsonify({
+        'status': 'success',
+        'cases': cases,
+        'total': len(cases)
+    })
+
+@app.route('/finca/v1/cases/<case_id>', methods=['GET'])
+@token_required
+def finca_get_case(current_user, case_id):
+    """Get single case"""
+    case = finca_cases.get(case_id)
+    if not case:
+        return jsonify({
+            'status': 'error',
+            'message': 'Case not found'
+        }), 404
+    return jsonify(case)
+
+@app.route('/finca/v1/cases/<case_id>/assign', methods=['POST'])
+@token_required
+def finca_assign_case(current_user, case_id):
+    """Assign case to analyst"""
+    case = finca_cases.get(case_id)
+    if not case:
+        return jsonify({
+            'status': 'error',
+            'message': 'Case not found'
+        }), 404
+    
+    data = request.json
+    analyst = data.get('analyst')
+    
+    if not analyst:
+        return jsonify({
+            'status': 'error',
+            'message': 'Analyst name required'
+        }), 400
+    
+    case['assigned_to'] = analyst
+    case['status'] = 'INVESTIGATING'
+    case['timeline'].append({
+        'timestamp': datetime.now().isoformat(),
+        'action': f'Assigned to {analyst}',
+        'actor': 'System'
+    })
+    
+    return jsonify({
+        'status': 'success',
+        'case': case
+    })
+
+@app.route('/finca/v1/cases/<case_id>/notes', methods=['POST'])
+@token_required
+def finca_add_note(current_user, case_id):
+    """Add investigation note"""
+    case = finca_cases.get(case_id)
+    if not case:
+        return jsonify({
+            'status': 'error',
+            'message': 'Case not found'
+        }), 404
+    
+    data = request.json
+    note = data.get('note')
+    analyst = data.get('analyst', 'Analyst')
+    
+    if not note:
+        return jsonify({
+            'status': 'error',
+            'message': 'Note required'
+        }), 400
+    
+    case['notes'].append({
+        'timestamp': datetime.now().isoformat(),
+        'analyst': analyst,
+        'note': note
+    })
+    
+    case['timeline'].append({
+        'timestamp': datetime.now().isoformat(),
+        'action': f'Added note: {note[:50]}...',
+        'actor': analyst
+    })
+    
+    return jsonify({
+        'status': 'success',
+        'message': 'Note added',
+        'case': case
+    })
+
+@app.route('/finca/v1/cases/<case_id>/resolve', methods=['POST'])
+@token_required
+def finca_resolve_case(current_user, case_id):
+    """Resolve a case"""
+    case = finca_cases.get(case_id)
+    if not case:
+        return jsonify({
+            'status': 'error',
+            'message': 'Case not found'
+        }), 404
+    
+    data = request.json
+    resolution = data.get('resolution')  # 'FRAUD_CONFIRMED' or 'FALSE_POSITIVE'
+    notes = data.get('notes', '')
+    analyst = data.get('analyst', 'Analyst')
+    
+    if resolution not in ['FRAUD_CONFIRMED', 'FALSE_POSITIVE']:
+        return jsonify({
+            'status': 'error',
+            'message': 'Resolution must be FRAUD_CONFIRMED or FALSE_POSITIVE'
+        }), 400
+    
+    case['status'] = 'RESOLVED'
+    case['resolution'] = {
+        'verdict': resolution,
+        'notes': notes,
+        'resolved_by': analyst,
+        'resolved_at': datetime.now().isoformat()
+    }
+    case['timeline'].append({
+        'timestamp': datetime.now().isoformat(),
+        'action': f'Case resolved: {resolution}',
+        'actor': analyst
+    })
+    
+    return jsonify({
+        'status': 'success',
+        'message': f'Case resolved as {resolution}',
+        'case': case
+    })
+
+@app.route('/finca/v1/dashboard', methods=['GET'])
+@token_required
+def finca_dashboard(current_user):
+    """FINCA Dashboard metrics"""
+    
+    total_tx = len(finca_transactions)
+    total_alerts = len(finca_alerts)
+    open_cases = len([c for c in finca_cases.values() if c['status'] in ['OPEN', 'INVESTIGATING']])
+    
+    # Count by risk level
+    risk_dist = {'LOW': 0, 'MEDIUM': 0, 'HIGH': 0, 'CRITICAL': 0}
+    for tx in finca_transactions.values():
+        level = tx['result'].get('risk_level', 'LOW')
+        risk_dist[level] = risk_dist.get(level, 0) + 1
+    
+    return jsonify({
+        'status': 'success',
+        'metrics': {
+            'total_transactions': total_tx,
+            'total_alerts': total_alerts,
+            'open_cases': open_cases,
+            'blocked': len([t for t in finca_transactions.values() if t['result'].get('decision') == 'BLOCK'])
+        },
+        'risk_distribution': risk_dist
+    })
+    
 if __name__ == '__main__':
+    logger.info("Starting FINCA Fraud Guard API...")
+    logger.info("  - Main API: http://localhost:5001/v1/api")
+    logger.info("  - FINCA API: http://localhost:5001/finca/v1")
+    logger.info("  - Adapter: FINCAAdapter loaded")
     app.run(debug=True, host='0.0.0.0', port=5001)
