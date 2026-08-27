@@ -2864,43 +2864,7 @@ def finca_submit_transaction(current_user):
             'status': 'error',
             'message': str(e)
         }), 500
-           
 
-@app.route('/finca/v1/transactions', methods=['GET'])
-@token_required
-def finca_list_transactions(current_user):
-    """List FINCA transactions"""
-    page = request.args.get('page', 1, type=int)
-    size = request.args.get('size', 20, type=int)
-    
-    tx_list = list(finca_transactions.values())
-    tx_list.sort(key=lambda x: x['timestamp'], reverse=True)
-    
-    start = (page - 1) * size
-    end = start + size
-    
-    return jsonify({
-        'status': 'success',
-        'transactions': tx_list[start:end],
-        'pagination': {
-            'page': page,
-            'size': size,
-            'total': len(tx_list),
-            'total_pages': (len(tx_list) + size - 1) // size
-        }
-    })
-
-@app.route('/finca/v1/transactions/<tx_id>', methods=['GET'])
-@token_required
-def finca_get_transaction(current_user, tx_id):
-    """Get single FINCA transaction"""
-    tx = finca_transactions.get(tx_id)
-    if not tx:
-        return jsonify({
-            'status': 'error',
-            'message': 'Transaction not found'
-        }), 404
-    return jsonify(tx)
 
 @app.route('/finca/v1/alerts', methods=['GET'])
 @token_required
