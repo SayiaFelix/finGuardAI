@@ -2643,10 +2643,10 @@ def finca_submit_transaction(current_user):
                 'message': 'No data provided'
             }), 400
         
-        #customer_id (both formats)
+        # ============================================
+        # Accept both lowercase AND capitalized
+        # ============================================
         customer_id = data.get('customer_id') or data.get('Customer_ID')
-        
-        #transaction_amount (both formats)
         transaction_amount = data.get('transaction_amount') or data.get('Transaction_Amount')
         
         if not customer_id:
@@ -2661,11 +2661,25 @@ def finca_submit_transaction(current_user):
                 'message': 'Missing required field: transaction_amount or Transaction_Amount'
             }), 400
         
-        # Normalize: add both formats so downstream code works
+        # Normalize
         data['customer_id'] = customer_id
         data['transaction_amount'] = transaction_amount
         data['Customer_ID'] = customer_id
         data['Transaction_Amount'] = transaction_amount
+        
+        # ============================================
+        # Capture FINCA-specific fields (channel, device, location)
+        # ============================================
+        channel = data.get('channel') or data.get('Channel') or data.get('Transaction_Type') or ''
+        device_type = data.get('device_type') or data.get('Device_Type') or ''
+        location = data.get('location') or data.get('Location') or data.get('Transaction_Location') or ''
+        
+        data['channel'] = channel
+        data['device_type'] = device_type
+        data['location'] = location
+        data['Channel'] = channel
+        data['Device_Type'] = device_type
+        data['Location'] = location
         
         # ============================================
         # Continue with processing...
@@ -2673,9 +2687,7 @@ def finca_submit_transaction(current_user):
         from finca_adapter import get_adapter
         adapter = get_adapter()
         
-        # Generate transaction ID
         tx_id = generate_finca_id('TXN')
-    
         result = adapter.analyze(data)
         
         if result is None:
@@ -2694,8 +2706,12 @@ def finca_submit_transaction(current_user):
             'avg_transaction_amount': data.get('avg_transaction_amount', data.get('Avg_Transaction_Amount', 0))
         }
         
-        # Build transaction details
+        # Build transaction details (from adapter result)
         transaction_details = result.get('transaction_details', {})
+        
+        transaction_details['finca_channel'] = channel
+        transaction_details['finca_device_type'] = device_type
+        transaction_details['finca_location'] = location
         
         # Generate explanations
         rule_based_explanation = generate_fraud_explanation(
@@ -2714,7 +2730,7 @@ def finca_submit_transaction(current_user):
         final_explanation = llm_explanation if llm_explanation else rule_based_explanation
         
         # ============================================
-        # CREATE ALERTS AND CASES (FINCA-specific)
+        # CREATE ALERTS AND CASES
         # ============================================
         alert_id = None
         case_id = None
@@ -2780,16 +2796,13 @@ def finca_submit_transaction(current_user):
             'status': {'current': 'Open', 'history': []}
         }
         
-        # Save to SQLite
         save_transaction_to_db(db_transaction_data)
         
-        # Save to pickle
         with file_lock:
             stored_scores = load_or_initialize_pickle(REAL_TIME_RISK_SCORES_PKL, {})
             stored_scores[tx_id] = db_transaction_data
             save_to_pickle(stored_scores, REAL_TIME_RISK_SCORES_PKL)
         
-        # Log decision
         log_decision(tx_id, result['risk_score'], result['risk_level'], result.get('recommended_action', ''))
         
         finca_transactions[tx_id] = {
@@ -2827,15 +2840,16 @@ def finca_submit_transaction(current_user):
             }
         }
         
+
         response['finca_specific'] = {
             'alert_id': alert_id,
             'case_id': case_id,
             'customer_id': customer_id,
             'customer_name': data.get('customer_name', data.get('Customer_Name', '')),
             'transaction_amount': transaction_amount,
-            'channel': data.get('channel', data.get('Channel', '')),
-            'device_type': data.get('device_type', data.get('Device_Type', '')),
-            'location': data.get('location', data.get('Location', ''))
+            'channel': channel, 
+            'device_type': device_type, 
+            'location': location 
         }
         
         logger.info(f"FINCA Transaction {tx_id}: {result['risk_level']} - {result.get('decision', 'UNKNOWN')}")
@@ -2850,7 +2864,7 @@ def finca_submit_transaction(current_user):
             'status': 'error',
             'message': str(e)
         }), 500
-        
+           
 
 @app.route('/finca/v1/transactions', methods=['GET'])
 @token_required
