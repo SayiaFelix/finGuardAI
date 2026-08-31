@@ -5,18 +5,18 @@ from datetime import datetime
 try:
     from sqlalchemy import (
         create_engine, Column, String, Float, DateTime, Integer, JSON, Boolean,
-        ForeignKey, func
+        ForeignKey, func, desc  # ADD desc here
     )
     from sqlalchemy.ext.declarative import declarative_base
     from sqlalchemy.orm import relationship, sessionmaker
 except ImportError:  # pragma: no cover - handled by environment setup
     from sqlalchemy import (  # type: ignore
         create_engine, Column, String, Float, DateTime, Integer, JSON, Boolean,
-        ForeignKey, func
+        ForeignKey, func, desc  # ADD desc here
     )
     from sqlalchemy.ext.declarative import declarative_base  # type: ignore
     from sqlalchemy.orm import relationship, sessionmaker  # type: ignore
-
+    
 import pytz
 import numpy as np
 import pandas as pd
@@ -226,6 +226,46 @@ class Feedback(Base):
     timestamp = Column(DateTime, default=get_nairobi_time)
     analyst_id = Column(String, default='system')
 
+class Alert(Base):
+    """Alerts generated from fraud detection"""
+    __tablename__ = 'alerts'
+    
+    id = Column(String, primary_key=True)
+    transaction_id = Column(String, ForeignKey('transactions.id'), nullable=True)
+    customer_id = Column(String)
+    risk_score = Column(Float)
+    ml_risk_level = Column(String)
+    final_risk_level = Column(String)
+    rule_risk_level = Column(String, nullable=True)
+    triggered_rules = Column(JSON, nullable=True)
+    reasons = Column(JSON, nullable=True)
+    decision = Column(String)
+    status = Column(String, default='NEW')
+    created_at = Column(DateTime, default=get_nairobi_time)
+    assigned_to = Column(String, nullable=True)
+    assigned_at = Column(DateTime, nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    resolution_notes = Column(String, nullable=True)
+
+class Case(Base):
+    """Investigation cases from critical alerts"""
+    __tablename__ = 'cases'
+    
+    id = Column(String, primary_key=True)
+    alert_id = Column(String, ForeignKey('alerts.id'), nullable=True)
+    customer_id = Column(String)
+    risk_score = Column(Float)
+    ml_risk_level = Column(String)
+    final_risk_level = Column(String)
+    status = Column(String, default='OPEN')
+    priority = Column(String, default='NORMAL')
+    assigned_to = Column(String, nullable=True)
+    notes = Column(JSON, default=list)
+    timeline = Column(JSON, default=list)
+    resolution = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=get_nairobi_time)
+    updated_at = Column(DateTime, default=get_nairobi_time, onupdate=get_nairobi_time)
+    
 def init_database():
     """Create all tables"""
     Base.metadata.create_all(engine)
@@ -318,10 +358,6 @@ def save_feedback_to_db(transaction_id, feedback_type, signals):
         return False
     finally:
         db.close()
-
-# ============================================
-# RULES CRUD OPERATIONS (Same pattern as transactions)
-# ============================================
 
 def save_rule_to_db(rule_data):
     """Save a rule to SQLite (same pattern as save_transaction_to_db)"""
@@ -749,6 +785,198 @@ def get_default_rules():
         }
     }
 
+def save_alert_to_db(alert_data):
+    """Save alert to SQLite - matches finca_submit_transaction pattern"""
+    db = SessionLocal()
+    try:
+        # Convert JSON data
+        triggered_rules = convert_for_json(alert_data.get('triggered_rules', []))
+        reasons = convert_for_json(alert_data.get('reasons', []))
+        
+        # Parse timestamps
+        created_at = None
+        if alert_data.get('created_at'):
+            try:
+                created_at = datetime.fromisoformat(alert_data['created_at'].replace('Z', '+00:00'))
+            except:
+                created_at = get_nairobi_time()
+        else:
+            created_at = get_nairobi_time()
+        
+        assigned_at = None
+        if alert_data.get('assigned_at'):
+            try:
+                assigned_at = datetime.fromisoformat(alert_data['assigned_at'].replace('Z', '+00:00'))
+            except:
+                pass
+        
+        resolved_at = None
+        if alert_data.get('resolved_at'):
+            try:
+                resolved_at = datetime.fromisoformat(alert_data['resolved_at'].replace('Z', '+00:00'))
+            except:
+                pass
+        
+        db_alert = Alert(
+            id=alert_data.get('id'),
+            transaction_id=alert_data.get('transaction_id'),
+            customer_id=alert_data.get('customer_id'),
+            risk_score=float(alert_data.get('risk_score', 0)),
+            ml_risk_level=alert_data.get('ml_risk_level', 'LOW'),
+            final_risk_level=alert_data.get('final_risk_level', 'LOW'),
+            rule_risk_level=alert_data.get('rule_risk_level'),
+            triggered_rules=triggered_rules,
+            reasons=reasons,
+            decision=alert_data.get('decision', 'APPROVE'),
+            status=alert_data.get('status', 'NEW'),
+            created_at=created_at,
+            assigned_to=alert_data.get('assigned_to'),
+            assigned_at=assigned_at,
+            resolved_at=resolved_at,
+            resolution_notes=alert_data.get('resolution_notes')
+        )
+        
+        # Upsert
+        existing = db.query(Alert).filter(Alert.id == alert_data.get('id')).first()
+        if existing:
+            for key, value in db_alert.__dict__.items():
+                if not key.startswith('_') and key != 'id':
+                    setattr(existing, key, value)
+            db.commit()
+            print(f"✅ Updated alert {alert_data.get('id')} in SQLite")
+        else:
+            db.add(db_alert)
+            db.commit()
+            print(f"✅ Saved alert {alert_data.get('id')} to SQLite")
+        
+        return True
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Database error saving alert: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    finally:
+        db.close()
+
+def save_case_to_db(case_data):
+    """Save case to SQLite - matches finca_submit_transaction pattern"""
+    db = SessionLocal()
+    try:
+        # Convert JSON data
+        notes = convert_for_json(case_data.get('notes', []))
+        timeline = convert_for_json(case_data.get('timeline', []))
+        resolution = convert_for_json(case_data.get('resolution'))
+        
+        # Parse timestamps
+        created_at = None
+        if case_data.get('created_at'):
+            try:
+                created_at = datetime.fromisoformat(case_data['created_at'].replace('Z', '+00:00'))
+            except:
+                created_at = get_nairobi_time()
+        else:
+            created_at = get_nairobi_time()
+        
+        updated_at = None
+        if case_data.get('updated_at'):
+            try:
+                updated_at = datetime.fromisoformat(case_data['updated_at'].replace('Z', '+00:00'))
+            except:
+                updated_at = get_nairobi_time()
+        
+        db_case = Case(
+            id=case_data.get('id'),
+            alert_id=case_data.get('alert_id'),
+            customer_id=case_data.get('customer_id'),
+            risk_score=float(case_data.get('risk_score', 0)),
+            ml_risk_level=case_data.get('ml_risk_level', 'LOW'),
+            final_risk_level=case_data.get('final_risk_level', 'LOW'),
+            status=case_data.get('status', 'OPEN'),
+            priority=case_data.get('priority', 'NORMAL'),
+            assigned_to=case_data.get('assigned_to'),
+            notes=notes,
+            timeline=timeline,
+            resolution=resolution,
+            created_at=created_at,
+            updated_at=updated_at or get_nairobi_time()
+        )
+        
+        # Upsert
+        existing = db.query(Case).filter(Case.id == case_data.get('id')).first()
+        if existing:
+            for key, value in db_case.__dict__.items():
+                if not key.startswith('_') and key != 'id':
+                    setattr(existing, key, value)
+            db.commit()
+            print(f"✅ Updated case {case_data.get('id')} in SQLite")
+        else:
+            db.add(db_case)
+            db.commit()
+            print(f"✅ Saved case {case_data.get('id')} to SQLite")
+        
+        return True
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Database error saving case: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    finally:
+        db.close()
+
+def get_alerts_from_db(alert_id=None, status=None, page=1, size=20):
+    """Get alerts from SQLite"""
+    db = SessionLocal()
+    try:
+        query = db.query(Alert)
+        
+        if alert_id:
+            alert = query.filter(Alert.id == alert_id).first()
+            db.close()
+            return alert
+        
+        if status:
+            query = query.filter(Alert.status == status)
+        
+        total = query.count()
+        alerts = query.order_by(desc(Alert.created_at)).offset((page-1)*size).limit(size).all()
+        db.close()
+        
+        return alerts, total
+    except Exception as e:
+        print(f"❌ Database error getting alerts: {e}")
+        return [], 0
+    finally:
+        db.close()
+
+def get_cases_from_db(case_id=None, status=None, page=1, size=20):
+    """Get cases from SQLite"""
+    db = SessionLocal()
+    try:
+        query = db.query(Case)
+        
+        if case_id:
+            case = query.filter(Case.id == case_id).first()
+            db.close()
+            return case
+        
+        if status:
+            query = query.filter(Case.status == status)
+        
+        total = query.count()
+        cases = query.order_by(desc(Case.created_at)).offset((page-1)*size).limit(size).all()
+        db.close()
+        
+        return cases, total
+    except Exception as e:
+        print(f"❌ Database error getting cases: {e}")
+        return [], 0
+    finally:
+        db.close()
+           
 def init_default_rules():
     """Initialize default rules if no rules exist"""
     rules = get_all_rules_from_db(include_inactive=True)
