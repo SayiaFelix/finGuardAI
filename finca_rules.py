@@ -191,7 +191,7 @@ def register_rules_routes(app):
     # Initialize default rules in database
     init_default_rules()
     
-    @app.route('/finca/v1/rules', methods=['GET'])
+    @app.route('/v1/api/finca/rules', methods=['GET'])
     def get_all_rules_simple():
         """Get all rules (simple GET, no pagination)"""
         try:
@@ -211,7 +211,7 @@ def register_rules_routes(app):
                 'message': str(e)
             }), 500
 
-    @app.route('/finca/v1/rules/list', methods=['POST'])
+    @app.route('/v1/api/finca/rules/list', methods=['POST'])
     def get_all_rules_paginated():
         """Get all rules with pagination (POST with JSON body)"""
         try:
@@ -263,7 +263,7 @@ def register_rules_routes(app):
                 'message': str(e)
             }), 500
 
-    @app.route('/finca/v1/rules/<rule_id>', methods=['GET'])
+    @app.route('/v1/api/finca/rules/<rule_id>', methods=['GET'])
     def get_rule(rule_id):
         """Get a specific rule by ID"""
         try:
@@ -286,7 +286,7 @@ def register_rules_routes(app):
                 'message': str(e)
             }), 500
     
-    @app.route('/finca/v1/rules', methods=['POST'])
+    @app.route('/v1/api/finca/rules', methods=['POST'])
     def create_rule():
         """Create a new rule"""
         try:
@@ -339,7 +339,7 @@ def register_rules_routes(app):
                 'message': str(e)
             }), 500
     
-    @app.route('/finca/v1/rules/<rule_id>', methods=['PUT'])
+    @app.route('/v1/api/finca/rules/<rule_id>', methods=['PUT'])
     def update_rule(rule_id):
         """Update an existing rule"""
         try:
@@ -383,7 +383,7 @@ def register_rules_routes(app):
                 'message': str(e)
             }), 500
     
-    @app.route('/finca/v1/rules/<rule_id>', methods=['DELETE'])
+    @app.route('/v1/api/finca/rules/<rule_id>', methods=['DELETE'])
     def delete_rule(rule_id):
         """Soft delete a rule (mark as inactive)"""
         try:
@@ -409,7 +409,7 @@ def register_rules_routes(app):
                 'message': str(e)
             }), 500
     
-    @app.route('/finca/v1/rules/<rule_id>/toggle', methods=['POST'])
+    @app.route('/v1/api/finca/rules/<rule_id>/toggle', methods=['POST'])
     def toggle_rule(rule_id):
         """Activate/deactivate a rule"""
         try:
@@ -438,7 +438,7 @@ def register_rules_routes(app):
                 'message': str(e)
             }), 500
     
-    @app.route('/finca/v1/rules/simulate', methods=['POST'])
+    @app.route('/v1/api/finca/rules/simulate', methods=['POST'])
     def simulate_rule():
         """Simulate a rule against a transaction"""
         try:
@@ -513,7 +513,7 @@ def register_rules_routes(app):
                 'message': str(e)
             }), 500
     
-    @app.route('/finca/v1/rules/stats', methods=['GET'])
+    @app.route('/v1/api/finca/rules/stats', methods=['GET'])
     def get_rule_stats():
         """Get rule statistics"""
         try:
@@ -531,7 +531,7 @@ def register_rules_routes(app):
                 'message': str(e)
             }), 500
     
-    @app.route('/finca/v1/rules/<rule_id>/history', methods=['GET'])
+    @app.route('/v1/api/finca/rules/<rule_id>/history', methods=['GET'])
     def get_rule_history(rule_id):
         """Get rule change history"""
         try:

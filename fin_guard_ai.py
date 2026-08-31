@@ -2615,7 +2615,7 @@ def generate_finca_id(prefix):
     random_suffix = ''.join(random.choices(string.digits, k=4))
     return f"{prefix}{timestamp}_{random_suffix}"
 
-@app.route('/finca/v1/health', methods=['GET'])
+@app.route('/v1/api/finca/health', methods=['GET'])
 def finca_health():
     """FINCA health check endpoint"""
     return jsonify({
@@ -2624,14 +2624,14 @@ def finca_health():
         'timestamp': get_nairobi_time(),
         'engine': 'FinGuardAI v1.0.0',
         'endpoints': {
-            'transactions': '/finca/v1/transactions',
-            'alerts': '/finca/v1/alerts',
-            'cases': '/finca/v1/cases',
-            'dashboard': '/finca/v1/dashboard'
+            'transactions': '/v1/api/finca/transactions',
+            'alerts': '/v1/api/finca/alerts',
+            'cases': '/v1/api/finca/cases',
+            'dashboard': '/v1/api/finca/dashboard'
         }
     })
     
-@app.route('/finca/v1/transactions', methods=['POST'])
+@app.route('/v1/api/finca/transactions', methods=['POST'])
 @token_required
 def finca_submit_transaction(current_user):
     """
@@ -2958,7 +2958,7 @@ def finca_submit_transaction(current_user):
             'message': str(e)
         }), 500
         
-@app.route('/finca/v1/get_transactions', methods=['POST'])
+@app.route('/v1/api/finca/get_transactions', methods=['POST'])
 @token_required
 def finca_list_transactions(current_user):
     """List FINCA transactions with pagination (POST with JSON body)"""
@@ -3001,7 +3001,7 @@ def finca_list_transactions(current_user):
             'message': str(e)
         }), 500
 
-@app.route('/finca/v1/alerts', methods=['POST'])
+@app.route('/v1/api/finca/alerts', methods=['POST'])
 @token_required
 def finca_list_alerts(current_user):
     """List FINCA alerts with pagination (POST with JSON body)"""
@@ -3049,7 +3049,7 @@ def finca_list_alerts(current_user):
             'message': str(e)
         }), 500
 
-@app.route('/finca/v1/alerts/<alert_id>', methods=['GET'])
+@app.route('/v1/api/finca/alerts/<alert_id>', methods=['GET'])
 @token_required
 def finca_get_alert(current_user, alert_id):
     """Get single alert"""
@@ -3061,7 +3061,7 @@ def finca_get_alert(current_user, alert_id):
         }), 404
     return jsonify(alert)
 
-@app.route('/finca/v1/alerts/<alert_id>/assign', methods=['POST'])
+@app.route('/v1/api/finca/alerts/<alert_id>/assign', methods=['POST'])
 @token_required
 def finca_assign_alert(current_user, alert_id):
     """Assign alert to analyst"""
@@ -3090,7 +3090,7 @@ def finca_assign_alert(current_user, alert_id):
         'alert': alert
     })
 
-@app.route('/finca/v1/cases', methods=['POST'])
+@app.route('/v1/api/finca/cases', methods=['POST'])
 @token_required
 def finca_list_cases(current_user):
     """List FINCA cases with pagination (POST with JSON body)"""
@@ -3138,7 +3138,7 @@ def finca_list_cases(current_user):
             'message': str(e)
         }), 500
 
-@app.route('/finca/v1/cases/<case_id>', methods=['GET'])
+@app.route('/v1/api/finca/cases/<case_id>', methods=['GET'])
 @token_required
 def finca_get_case(current_user, case_id):
     """Get single case"""
@@ -3150,7 +3150,7 @@ def finca_get_case(current_user, case_id):
         }), 404
     return jsonify(case)
 
-@app.route('/finca/v1/cases/<case_id>/assign', methods=['POST'])
+@app.route('/v1/api/finca/cases/<case_id>/assign', methods=['POST'])
 @token_required
 def finca_assign_case(current_user, case_id):
     """Assign case to analyst"""
@@ -3183,7 +3183,7 @@ def finca_assign_case(current_user, case_id):
         'case': case
     })
 
-@app.route('/finca/v1/cases/<case_id>/notes', methods=['POST'])
+@app.route('/v1/api/finca/cases/<case_id>/notes', methods=['POST'])
 @token_required
 def finca_add_note(current_user, case_id):
     """Add investigation note"""
@@ -3222,7 +3222,7 @@ def finca_add_note(current_user, case_id):
         'case': case
     })
 
-@app.route('/finca/v1/cases/<case_id>/resolve', methods=['POST'])
+@app.route('/v1/api/finca/cases/<case_id>/resolve', methods=['POST'])
 @token_required
 def finca_resolve_case(current_user, case_id):
     """Resolve a case"""
@@ -3263,7 +3263,7 @@ def finca_resolve_case(current_user, case_id):
         'case': case
     })
 
-@app.route('/finca/v1/dashboard', methods=['GET'])
+@app.route('/v1/api/finca/dashboard', methods=['GET'])
 @token_required
 def finca_dashboard(current_user):
     """FINCA Dashboard metrics"""
@@ -3292,6 +3292,6 @@ def finca_dashboard(current_user):
 if __name__ == '__main__':
     logger.info("Starting FINCA Fraud Guard API...")
     logger.info("  - Main API: http://localhost:5001/v1/api")
-    logger.info("  - FINCA API: http://localhost:5001/finca/v1")
+    logger.info("  - FINCA API: http://localhost:5001/v1/api/finca")
     logger.info("  - Adapter: FINCAAdapter loaded")
     app.run(debug=True, host='0.0.0.0', port=5001)
