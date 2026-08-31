@@ -1,18 +1,28 @@
 import json
 import os
-
-from sqlalchemy import create_engine, Column, String, Float, DateTime, Integer, JSON, Boolean
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 from datetime import datetime
+
+try:
+    from sqlalchemy import (
+        create_engine, Column, String, Float, DateTime, Integer, JSON, Boolean,
+        ForeignKey, func
+    )
+    from sqlalchemy.ext.declarative import declarative_base
+    from sqlalchemy.orm import relationship, sessionmaker
+except ImportError:  # pragma: no cover - handled by environment setup
+    from sqlalchemy import (  # type: ignore
+        create_engine, Column, String, Float, DateTime, Integer, JSON, Boolean,
+        ForeignKey, func
+    )
+    from sqlalchemy.ext.declarative import declarative_base  # type: ignore
+    from sqlalchemy.orm import relationship, sessionmaker  # type: ignore
+
 import pytz
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
 import bcrypt
-from sqlalchemy import ForeignKey
-from sqlalchemy.orm import relationship
 
 load_dotenv()
 
@@ -150,6 +160,61 @@ class Transaction(Base):
     national_alert_mode = Column(Boolean, default=False)
     llm_status = Column(String, default='disconnected')
 
+class Rule(Base):
+    """Fraud Detection Rules - matches your rules_storage structure"""
+    __tablename__ = 'rules'
+    
+    id = Column(String, primary_key=True)  # e.g., 'R001'
+    name = Column(String, nullable=False)
+    description = Column(String, default='')
+    
+    # JSON fields for complex structures
+    conditions = Column(JSON, nullable=False)  # {'field': 'device_type', 'operator': 'is_new', ...}
+    action = Column(JSON, nullable=False)     # {'risk_points': 25, 'decision': 'BLOCK', ...}
+    
+    priority = Column(Integer, default=999)
+    is_active = Column(Boolean, default=True)
+    category = Column(String, default='CUSTOM')
+    
+    # Metadata
+    created_at = Column(DateTime, default=get_nairobi_time)
+    updated_at = Column(DateTime, default=get_nairobi_time, onupdate=get_nairobi_time)
+    created_by = Column(String, default='System')
+    version = Column(Integer, default=1)
+    
+    # Statistics
+    trigger_count = Column(Integer, default=0)
+    false_positive_rate = Column(Float, default=0.0)
+    last_triggered = Column(DateTime, nullable=True)
+    
+    # Soft delete
+    deleted_at = Column(DateTime, nullable=True)
+
+class RuleHistory(Base):
+    """Rule version history for audit trail"""
+    __tablename__ = 'rule_history'
+    
+    id = Column(Integer, primary_key=True)
+    rule_id = Column(String, ForeignKey('rules.id'), nullable=False)
+    version = Column(Integer, nullable=False)
+    snapshot = Column(JSON, nullable=False)  # Full rule snapshot
+    saved_at = Column(DateTime, default=get_nairobi_time)
+    
+    # Relationship
+    rule = relationship("Rule", backref="history")
+
+class RuleFeedback(Base):
+    """Track rule performance feedback"""
+    __tablename__ = 'rule_feedback'
+    
+    id = Column(Integer, primary_key=True)
+    rule_id = Column(String, ForeignKey('rules.id'))
+    transaction_id = Column(String, nullable=True)
+    feedback_type = Column(String)  # 'correct', 'false_positive', 'missed'
+    notes = Column(String, default='')
+    created_at = Column(DateTime, default=get_nairobi_time)
+    created_by = Column(String, default='System')
+    
 class Feedback(Base):
     """Matches your feedback.json structure"""
     __tablename__ = 'feedbacks'
@@ -254,6 +319,456 @@ def save_feedback_to_db(transaction_id, feedback_type, signals):
     finally:
         db.close()
 
+# ============================================
+# RULES CRUD OPERATIONS (Same pattern as transactions)
+# ============================================
+
+def save_rule_to_db(rule_data):
+    """Save a rule to SQLite (same pattern as save_transaction_to_db)"""
+    db = SessionLocal()
+    try:
+        # Convert to JSON-safe format
+        conditions = convert_for_json(rule_data.get('conditions', {}))
+        action = convert_for_json(rule_data.get('action', {}))
+        
+        # Parse timestamp
+        created_at = None
+        if rule_data.get('created_at'):
+            try:
+                created_at = datetime.fromisoformat(rule_data['created_at'].replace('Z', '+00:00'))
+            except:
+                created_at = get_nairobi_time()
+        else:
+            created_at = get_nairobi_time()
+        
+        updated_at = None
+        if rule_data.get('updated_at'):
+            try:
+                updated_at = datetime.fromisoformat(rule_data['updated_at'].replace('Z', '+00:00'))
+            except:
+                updated_at = get_nairobi_time()
+        
+        last_triggered = None
+        if rule_data.get('last_triggered'):
+            try:
+                last_triggered = datetime.fromisoformat(rule_data['last_triggered'].replace('Z', '+00:00'))
+            except:
+                pass
+        
+        deleted_at = None
+        if rule_data.get('deleted_at'):
+            try:
+                deleted_at = datetime.fromisoformat(rule_data['deleted_at'].replace('Z', '+00:00'))
+            except:
+                pass
+        
+        db_rule = Rule(
+            id=rule_data.get('id'),
+            name=rule_data.get('name', 'Unnamed Rule'),
+            description=rule_data.get('description', ''),
+            conditions=conditions,
+            action=action,
+            priority=rule_data.get('priority', 999),
+            is_active=rule_data.get('is_active', True),
+            category=rule_data.get('category', 'CUSTOM'),
+            created_at=created_at,
+            updated_at=updated_at or get_nairobi_time(),
+            created_by=rule_data.get('created_by', 'System'),
+            version=rule_data.get('version', 1),
+            trigger_count=rule_data.get('trigger_count', 0),
+            false_positive_rate=rule_data.get('false_positive_rate', 0.0),
+            last_triggered=last_triggered,
+            deleted_at=deleted_at
+        )
+        
+        # Upsert
+        existing = db.query(Rule).filter(Rule.id == rule_data.get('id')).first()
+        if existing:
+            for key, value in db_rule.__dict__.items():
+                if not key.startswith('_') and key != 'id':
+                    setattr(existing, key, value)
+            db.commit()
+            print(f"Updated rule {rule_data.get('id')} in SQLite")
+        else:
+            db.add(db_rule)
+            db.commit()
+            print(f"Saved rule {rule_data.get('id')} to SQLite")
+        
+        return True
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Database error saving rule: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    finally:
+        db.close()
+
+def get_all_rules_from_db(include_inactive=False):
+    """Get all rules from SQLite"""
+    db = SessionLocal()
+    try:
+        query = db.query(Rule)
+        
+        if not include_inactive:
+            query = query.filter(Rule.is_active == True, Rule.deleted_at.is_(None))
+        else:
+            query = query.filter(Rule.deleted_at.is_(None))
+        
+        rules = query.order_by(Rule.priority.asc()).all()
+        
+        result = []
+        for rule in rules:
+            result.append({
+                'id': rule.id,
+                'name': rule.name,
+                'description': rule.description,
+                'conditions': rule.conditions,
+                'action': rule.action,
+                'priority': rule.priority,
+                'is_active': rule.is_active,
+                'category': rule.category,
+                'created_at': rule.created_at.isoformat() if rule.created_at else None,
+                'updated_at': rule.updated_at.isoformat() if rule.updated_at else None,
+                'created_by': rule.created_by,
+                'version': rule.version,
+                'trigger_count': rule.trigger_count,
+                'false_positive_rate': rule.false_positive_rate,
+                'last_triggered': rule.last_triggered.isoformat() if rule.last_triggered else None,
+                'deleted_at': rule.deleted_at.isoformat() if rule.deleted_at else None
+            })
+        
+        return result
+        
+    except Exception as e:
+        print(f"Database error getting rules: {e}")
+        return []
+    finally:
+        db.close()
+
+def get_rule_from_db(rule_id):
+    """Get a single rule from SQLite"""
+    db = SessionLocal()
+    try:
+        rule = db.query(Rule).filter(Rule.id == rule_id, Rule.deleted_at.is_(None)).first()
+        
+        if not rule:
+            return None
+        
+        return {
+            'id': rule.id,
+            'name': rule.name,
+            'description': rule.description,
+            'conditions': rule.conditions,
+            'action': rule.action,
+            'priority': rule.priority,
+            'is_active': rule.is_active,
+            'category': rule.category,
+            'created_at': rule.created_at.isoformat() if rule.created_at else None,
+            'updated_at': rule.updated_at.isoformat() if rule.updated_at else None,
+            'created_by': rule.created_by,
+            'version': rule.version,
+            'trigger_count': rule.trigger_count,
+            'false_positive_rate': rule.false_positive_rate,
+            'last_triggered': rule.last_triggered.isoformat() if rule.last_triggered else None,
+            'deleted_at': rule.deleted_at.isoformat() if rule.deleted_at else None
+        }
+        
+    except Exception as e:
+        print(f"Database error getting rule {rule_id}: {e}")
+        return None
+    finally:
+        db.close()
+
+def delete_rule_from_db(rule_id):
+    """Soft delete a rule from SQLite"""
+    db = SessionLocal()
+    try:
+        rule = db.query(Rule).filter(Rule.id == rule_id).first()
+        if rule:
+            rule.is_active = False
+            rule.deleted_at = get_nairobi_time()
+            db.commit()
+            print(f"Rule {rule_id} soft deleted from SQLite")
+            return True
+        return False
+    except Exception as e:
+        db.rollback()
+        print(f"Database error deleting rule: {e}")
+        return False
+    finally:
+        db.close()
+
+def toggle_rule_in_db(rule_id):
+    """Toggle rule active status in SQLite"""
+    db = SessionLocal()
+    try:
+        rule = db.query(Rule).filter(Rule.id == rule_id, Rule.deleted_at.is_(None)).first()
+        if rule:
+            rule.is_active = not rule.is_active
+            rule.updated_at = get_nairobi_time()
+            db.commit()
+            return rule.is_active
+        return None
+    except Exception as e:
+        db.rollback()
+        print(f"Database error toggling rule: {e}")
+        return None
+    finally:
+        db.close()
+
+def get_rules_stats_from_db():
+    """Get rule statistics from SQLite"""
+    db = SessionLocal()
+    try:
+        total = db.query(Rule).filter(Rule.deleted_at.is_(None)).count()
+        active = db.query(Rule).filter(Rule.is_active == True, Rule.deleted_at.is_(None)).count()
+        inactive = total - active
+        
+        # By category
+        from sqlalchemy import func
+        categories = db.query(Rule.category, func.count(Rule.id)).filter(Rule.deleted_at.is_(None)).group_by(Rule.category).all()
+        categories_dict = {cat: count for cat, count in categories}
+        
+        # Top triggered rules
+        top_rules = db.query(Rule).filter(Rule.deleted_at.is_(None)).order_by(Rule.trigger_count.desc()).limit(5).all()
+        top_rules_list = [
+            {'id': r.id, 'name': r.name, 'trigger_count': r.trigger_count}
+            for r in top_rules
+        ]
+        
+        return {
+            'total_rules': total,
+            'active_rules': active,
+            'inactive_rules': inactive,
+            'by_category': categories_dict,
+            'top_rules': top_rules_list
+        }
+        
+    except Exception as e:
+        print(f"Database error getting rule stats: {e}")
+        return {}
+    finally:
+        db.close()
+
+def save_rule_history_to_db(rule_id, version, snapshot):
+    """Save rule version history"""
+    db = SessionLocal()
+    try:
+        history = RuleHistory(
+            rule_id=rule_id,
+            version=version,
+            snapshot=convert_for_json(snapshot)
+        )
+        db.add(history)
+        db.commit()
+        return True
+    except Exception as e:
+        db.rollback()
+        print(f"Database error saving rule history: {e}")
+        return False
+    finally:
+        db.close()
+
+def get_rule_history_from_db(rule_id):
+    """Get rule history from SQLite"""
+    db = SessionLocal()
+    try:
+        history = db.query(RuleHistory).filter(RuleHistory.rule_id == rule_id).order_by(RuleHistory.version.asc()).all()
+        return [
+            {
+                'version': h.version,
+                'snapshot': h.snapshot,
+                'saved_at': h.saved_at.isoformat() if h.saved_at else None
+            }
+            for h in history
+        ]
+    except Exception as e:
+        print(f"Database error getting rule history: {e}")
+        return []
+    finally:
+        db.close()
+
+def get_default_rules():
+    """Get default FINCA rules for initialization"""
+    return {
+        'R001': {
+            'id': 'R001',
+            'name': 'New Device + High Value',
+            'description': 'Transaction from new device with high amount',
+            'conditions': {
+                'field': 'device_type',
+                'operator': 'is_new',
+                'value': True,
+                'amount_threshold': 5000000
+            },
+            'action': {
+                'risk_points': 25,
+                'decision': 'BLOCK',
+                'alert': True
+            },
+            'priority': 1,
+            'is_active': True,
+            'category': 'DEVICE',
+            'created_at': get_nairobi_time().isoformat(),
+            'updated_at': get_nairobi_time().isoformat(),
+            'created_by': 'System',
+            'version': 1,
+            'trigger_count': 0,
+            'false_positive_rate': 0.0,
+            'last_triggered': None
+        },
+        'R002': {
+            'id': 'R002',
+            'name': 'New Beneficiary + High Value',
+            'description': 'Transaction to newly added beneficiary',
+            'conditions': {
+                'field': 'beneficiary',
+                'operator': 'is_new',
+                'value': True,
+                'amount_threshold': 2000000
+            },
+            'action': {
+                'risk_points': 15,
+                'decision': 'CHALLENGE',
+                'alert': True
+            },
+            'priority': 2,
+            'is_active': True,
+            'category': 'BENEFICIARY',
+            'created_at': get_nairobi_time().isoformat(),
+            'updated_at': get_nairobi_time().isoformat(),
+            'created_by': 'System',
+            'version': 1,
+            'trigger_count': 0,
+            'false_positive_rate': 0.0,
+            'last_triggered': None
+        },
+        'R003': {
+            'id': 'R003',
+            'name': 'Transaction Velocity',
+            'description': 'Multiple transactions in short period',
+            'conditions': {
+                'field': 'tx_count_last_hour',
+                'operator': 'greater_than',
+                'value': 5,
+                'timeframe_minutes': 10
+            },
+            'action': {
+                'risk_points': 20,
+                'decision': 'CHALLENGE',
+                'alert': True
+            },
+            'priority': 3,
+            'is_active': True,
+            'category': 'VELOCITY',
+            'created_at': get_nairobi_time().isoformat(),
+            'updated_at': get_nairobi_time().isoformat(),
+            'created_by': 'System',
+            'version': 1,
+            'trigger_count': 0,
+            'false_positive_rate': 0.0,
+            'last_triggered': None
+        },
+        'R004': {
+            'id': 'R004',
+            'name': 'Amount Anomaly',
+            'description': 'Transaction > 5x customer average',
+            'conditions': {
+                'field': 'transaction_amount',
+                'operator': 'greater_than_multiplier',
+                'value': 5,
+                'based_on': 'customer_avg'
+            },
+            'action': {
+                'risk_points': 20,
+                'decision': 'BLOCK',
+                'alert': True
+            },
+            'priority': 4,
+            'is_active': True,
+            'category': 'AMOUNT',
+            'created_at': get_nairobi_time().isoformat(),
+            'updated_at': get_nairobi_time().isoformat(),
+            'created_by': 'System',
+            'version': 1,
+            'trigger_count': 0,
+            'false_positive_rate': 0.0,
+            'last_triggered': None
+        },
+        'R005': {
+            'id': 'R005',
+            'name': 'Location Anomaly',
+            'description': 'Transaction from unusual location',
+            'conditions': {
+                'field': 'location',
+                'operator': 'is_new_location',
+                'value': True
+            },
+            'action': {
+                'risk_points': 15,
+                'decision': 'CHALLENGE',
+                'alert': True
+            },
+            'priority': 5,
+            'is_active': True,
+            'category': 'LOCATION',
+            'created_at': get_nairobi_time().isoformat(),
+            'updated_at': get_nairobi_time().isoformat(),
+            'created_by': 'System',
+            'version': 1,
+            'trigger_count': 0,
+            'false_positive_rate': 0.0,
+            'last_triggered': None
+        },
+        'R006': {
+            'id': 'R006',
+            'name': 'Unusual Time',
+            'description': 'Transaction at unusual hour (midnight - 5am)',
+            'conditions': {
+                'field': 'transaction_hour',
+                'operator': 'between',
+                'value': [0, 5]
+            },
+            'action': {
+                'risk_points': 10,
+                'decision': 'CHALLENGE',
+                'alert': False
+            },
+            'priority': 6,
+            'is_active': True,
+            'category': 'TIME',
+            'created_at': get_nairobi_time().isoformat(),
+            'updated_at': get_nairobi_time().isoformat(),
+            'created_by': 'System',
+            'version': 1,
+            'trigger_count': 0,
+            'false_positive_rate': 0.0,
+            'last_triggered': None
+        }
+    }
+
+def init_default_rules():
+    """Initialize default rules if no rules exist"""
+    rules = get_all_rules_from_db(include_inactive=True)
+    if not rules:
+        default_rules = get_default_rules()
+        for rule_id, rule in default_rules.items():
+            save_rule_to_db(rule)
+        print(f"✅ Initialized {len(default_rules)} default rules")
+    else:
+        print(f"✅ Rules already exist: {len(rules)} rules found")
+ 
+def init_database():
+    """Create all tables and initialize default data"""
+    Base.metadata.create_all(engine)
+    print("✅ SQLite database created successfully! (fraudsentinel.db)")
+    create_admin_user()
+    
+    # Initialize default rules
+    init_default_rules()
+                 
 def convert_for_json(obj):
     """Convert any numpy/pandas types to Python native types for JSON storage"""
 

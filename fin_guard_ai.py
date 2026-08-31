@@ -5,6 +5,7 @@ import logging
 import pickle
 from fin_feedback_store import FEEDBACK_FILE, store_feedback
 from fin_weight_store import load_weights
+from finca_rules import evaluate_all_rules, register_rules_routes
 import joblib
 import random
 import string
@@ -957,6 +958,9 @@ def make_json_serializable(obj):
 
 ### authentication routes
 register_auth_routes(app)
+
+## rules routes
+register_rules_routes(app) 
 
 @app.route('/v1/api/data_preparation', methods=['POST'])
 def prepare_data_endpoint():
@@ -2603,7 +2607,6 @@ def test():
 # ============================================
 
 
-
 def generate_finca_id(prefix):
     """Generate FINCA-style ID"""
     import random
@@ -2627,12 +2630,13 @@ def finca_health():
             'dashboard': '/finca/v1/dashboard'
         }
     })
-
+    
 @app.route('/finca/v1/transactions', methods=['POST'])
 @token_required
 def finca_submit_transaction(current_user):
     """
-    FINCA Transaction Submission
+    FINCA Transaction Submission with Rules Evaluation
+    Separates ML risk from Rule risk - no mixing!
     """
     try:
         data = request.json
@@ -2643,9 +2647,7 @@ def finca_submit_transaction(current_user):
                 'message': 'No data provided'
             }), 400
         
-        # ============================================
         # Accept both lowercase AND capitalized
-        # ============================================
         customer_id = data.get('customer_id') or data.get('Customer_ID')
         transaction_amount = data.get('transaction_amount') or data.get('Transaction_Amount')
         
@@ -2667,9 +2669,7 @@ def finca_submit_transaction(current_user):
         data['Customer_ID'] = customer_id
         data['Transaction_Amount'] = transaction_amount
         
-        # ============================================
-        # Capture FINCA-specific fields (channel, device, location)
-        # ============================================
+        #FINCA-specific fields
         channel = data.get('channel') or data.get('Channel') or data.get('Transaction_Type') or ''
         device_type = data.get('device_type') or data.get('Device_Type') or ''
         location = data.get('location') or data.get('Location') or data.get('Transaction_Location') or ''
@@ -2681,9 +2681,7 @@ def finca_submit_transaction(current_user):
         data['Device_Type'] = device_type
         data['Location'] = location
         
-        # ============================================
-        # Continue with processing...
-        # ============================================
+        # Run ML engine analysis
         from finca_adapter import get_adapter
         adapter = get_adapter()
         
@@ -2696,7 +2694,71 @@ def finca_submit_transaction(current_user):
                 'message': 'Risk Engine analysis failed'
             }), 500
         
-        # Build customer info
+        # 1. ML RISK LEVEL (based on ML score only)
+        # ============================================
+        ml_score = result['risk_score']
+        
+        # FINCA risk bands (0-100 scale)
+        if ml_score >= 80:
+            ml_risk_level = "CRITICAL"
+            ml_decision = "BLOCK"
+        elif ml_score >= 60:
+            ml_risk_level = "HIGH"
+            ml_decision = "CHALLENGE"
+        elif ml_score >= 30:
+            ml_risk_level = "MEDIUM"
+            ml_decision = "CHALLENGE"
+        else:
+            ml_risk_level = "LOW"
+            ml_decision = "APPROVE"
+        
+        # 2. EVALUATE RULES (separate from ML)
+        # ============================================
+        from finca_rules import evaluate_all_rules
+        rule_evaluation = evaluate_all_rules(data)
+        
+        total_rule_points = rule_evaluation['total_risk_points']
+        capped_rule_points = min(total_rule_points, 100)
+        
+        # Determine rule risk level based on capped points
+        if capped_rule_points >= 80:
+            rule_risk_level = "CRITICAL"
+        elif capped_rule_points >= 60:
+            rule_risk_level = "HIGH"
+        elif capped_rule_points >= 30:
+            rule_risk_level = "MEDIUM"
+        else:
+            rule_risk_level = "LOW"
+        
+        # 3. FINAL DECISION (combine ML + Rules)
+        # Rules can ESCALATE (BLOCK overrides)
+        # ============================================
+        final_decision = ml_decision
+        final_risk_level = ml_risk_level
+        
+        if rule_evaluation['triggered_rules']:
+            result['rule_triggers'] = rule_evaluation['triggered_rules']
+            result['rule_points'] = total_rule_points
+            result['capped_rule_points'] = capped_rule_points
+            result['rule_risk_level'] = rule_risk_level
+            
+            # Rules can ONLY escalate
+            if rule_evaluation['final_decision'] == 'BLOCK':
+                final_decision = 'BLOCK'
+                final_risk_level = 'CRITICAL'
+            elif rule_evaluation['final_decision'] == 'CHALLENGE' and final_risk_level not in ['CRITICAL', 'HIGH']:
+                final_decision = 'CHALLENGE'
+                if final_risk_level == 'LOW':
+                    final_risk_level = 'MEDIUM'
+        
+        # Store both ML and final risk levels
+        result['ml_risk_level'] = ml_risk_level
+        result['ml_score'] = ml_score
+        result['risk_level'] = final_risk_level
+        result['decision'] = final_decision
+        
+        # 4. Build customer info
+        # ============================================
         customer_info = {
             'customer_id': customer_id,
             'customer_name': data.get('customer_name', data.get('Customer_Name', f"Customer {tx_id[1:9]}")),
@@ -2706,59 +2768,85 @@ def finca_submit_transaction(current_user):
             'avg_transaction_amount': data.get('avg_transaction_amount', data.get('Avg_Transaction_Amount', 0))
         }
         
-        # Build transaction details (from adapter result)
+        # 5. Build transaction details
+        # ============================================
         transaction_details = result.get('transaction_details', {})
-        
         transaction_details['finca_channel'] = channel
         transaction_details['finca_device_type'] = device_type
         transaction_details['finca_location'] = location
         
-        # Generate explanations
+        # ML risk info to transaction_details
+        transaction_details['ml_risk_score'] = ml_score
+        transaction_details['ml_risk_level'] = ml_risk_level
+        transaction_details['final_risk_level'] = final_risk_level
+        
+        # rule info to transaction_details (separate from ML)
+        if rule_evaluation['triggered_rules']:
+            transaction_details['finca_rules_triggered'] = [
+                {
+                    'rule_id': r.get('rule_id'),
+                    'rule_name': r.get('rule_name'),
+                    'reason': r.get('reason'),
+                    'rule_points': r.get('risk_points')
+                } for r in rule_evaluation['triggered_rules']
+            ]
+            transaction_details['finca_total_rule_points'] = total_rule_points
+            transaction_details['finca_capped_rule_points'] = capped_rule_points
+            transaction_details['finca_rule_risk_level'] = rule_risk_level
+            transaction_details['finca_final_decision'] = rule_evaluation['final_decision']
+            transaction_details['finca_rule_count'] = rule_evaluation['rule_count']
+        
+  
+        # 6. Generate explanations (using ML risk level)
+        # ============================================
         rule_based_explanation = generate_fraud_explanation(
-            risk_score=result['risk_score'],
-            risk_category=result['risk_level'],
+            risk_score=ml_score,  # ML score only
+            risk_category=ml_risk_level,  # ML risk level (not escalated)
             transaction_details=transaction_details
         )
         
         llm_explanation = generate_llm_explanation(
-            risk_score=result['risk_score'] / 10,
-            risk_category=result['risk_level'],
+            risk_score=ml_score / 10,
+            risk_category=ml_risk_level,  # ML risk level (not escalated)
             transaction_details=transaction_details,
             recommended_action=result.get('recommended_action', '')
         )
         
         final_explanation = llm_explanation if llm_explanation else rule_based_explanation
         
-        # ============================================
-        # CREATE ALERTS AND CASES
+
+        # 7. alerts and cases (based on final risk level)
         # ============================================
         alert_id = None
         case_id = None
         
-        if result['risk_level'] in ['HIGH', 'CRITICAL']:
+        if final_risk_level in ['HIGH', 'CRITICAL']:
             alert_id = generate_finca_id('ALT')
             finca_alerts[alert_id] = {
                 'id': alert_id,
                 'transaction_id': tx_id,
                 'customer_id': customer_id,
-                'risk_score': result['risk_score'],
-                'risk_level': result['risk_level'],
+                'risk_score': ml_score,
+                'ml_risk_level': ml_risk_level,
+                'final_risk_level': final_risk_level,
+                'rule_risk_level': rule_risk_level if rule_evaluation['triggered_rules'] else None,
                 'triggered_rules': result.get('triggered_rules', []),
                 'reasons': result.get('reasons', []),
-                'decision': result.get('decision', ''),
+                'decision': final_decision,
                 'status': 'NEW',
                 'created_at': datetime.now().isoformat(),
                 'assigned_to': None
             }
             
-            if result['risk_level'] == 'CRITICAL':
+            if final_risk_level == 'CRITICAL':
                 case_id = generate_finca_id('CASE')
                 finca_cases[case_id] = {
                     'id': case_id,
                     'alert_id': alert_id,
                     'customer_id': customer_id,
-                    'risk_score': result['risk_score'],
-                    'risk_level': result['risk_level'],
+                    'risk_score': ml_score,
+                    'ml_risk_level': ml_risk_level,
+                    'final_risk_level': final_risk_level,
                     'status': 'OPEN',
                     'priority': 'URGENT',
                     'assigned_to': None,
@@ -2774,11 +2862,13 @@ def finca_submit_transaction(current_user):
                     'created_at': datetime.now().isoformat()
                 }
         
+        # 8. Save to database
+        # ============================================
         db_transaction_data = {
             'transaction_id': tx_id,
             'timestamp': get_nairobi_time(),
-            'risk_score': result['risk_score'],
-            'risk_category': result['risk_level'],
+            'risk_score': ml_score,
+            'risk_category': final_risk_level,
             'transaction_details': transaction_details,
             'customer_info': customer_info,
             'recommended_action': result.get('recommended_action', ''),
@@ -2803,7 +2893,7 @@ def finca_submit_transaction(current_user):
             stored_scores[tx_id] = db_transaction_data
             save_to_pickle(stored_scores, REAL_TIME_RISK_SCORES_PKL)
         
-        log_decision(tx_id, result['risk_score'], result['risk_level'], result.get('recommended_action', ''))
+        log_decision(tx_id, ml_score, final_risk_level, result.get('recommended_action', ''))
         
         finca_transactions[tx_id] = {
             'id': tx_id,
@@ -2816,6 +2906,8 @@ def finca_submit_transaction(current_user):
             'timestamp': datetime.now().isoformat()
         }
         
+        # 9. Response - Clear separation of ML vs Rules
+        # ============================================
         response = {
             'status': 'success',
             'message': 'Risk score calculated successfully (async mode) !!!!!!!',
@@ -2824,8 +2916,10 @@ def finca_submit_transaction(current_user):
             'result': {
                 'transaction_id': tx_id,
                 'timestamp': get_nairobi_time(),
-                'risk_score': result['risk_score'],
-                'risk_category': result['risk_level'],
+                'risk_score': ml_score,  # ML score only
+                'ml_risk_level': ml_risk_level,  # ML-based risk level
+                'final_risk_level': final_risk_level,  # Final risk level (after rules)
+                'decision': final_decision,
                 'transaction_details': transaction_details,
                 'customer_info': customer_info,
                 'recommended_action': result.get('recommended_action', ''),
@@ -2840,19 +2934,18 @@ def finca_submit_transaction(current_user):
             }
         }
         
-
         response['finca_specific'] = {
             'alert_id': alert_id,
             'case_id': case_id,
             'customer_id': customer_id,
             'customer_name': data.get('customer_name', data.get('Customer_Name', '')),
             'transaction_amount': transaction_amount,
-            'channel': channel, 
-            'device_type': device_type, 
-            'location': location 
+            'channel': channel,
+            'device_type': device_type,
+            'location': location
         }
         
-        logger.info(f"FINCA Transaction {tx_id}: {result['risk_level']} - {result.get('decision', 'UNKNOWN')}")
+        logger.info(f"FINCA Transaction {tx_id}: ML Score={ml_score} ({ml_risk_level}), Rules={total_rule_points} (capped={capped_rule_points}, {rule_risk_level}), Final={final_risk_level}, Decision={final_decision}")
         
         return jsonify(response), 200
         
@@ -2864,23 +2957,97 @@ def finca_submit_transaction(current_user):
             'status': 'error',
             'message': str(e)
         }), 500
+        
+@app.route('/finca/v1/get_transactions', methods=['POST'])
+@token_required
+def finca_list_transactions(current_user):
+    """List FINCA transactions with pagination (POST with JSON body)"""
+    try:
+        data = request.json or {}
+        
+        page = int(data.get('page', 1))
+        size = int(data.get('size', 20))
+        
+        if page < 1:
+            page = 1
+        if size < 1 or size > 100:
+            size = 20
+        
+        tx_list = list(finca_transactions.values())
+        tx_list.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        
+        total = len(tx_list)
+        start_idx = (page - 1) * size
+        end_idx = start_idx + size
+        paginated = tx_list[start_idx:end_idx]
+        
+        return jsonify({
+            'status': 'success',
+            'transactions': paginated,
+            'pagination': {
+                'page': page,
+                'size': size,
+                'total': total,
+                'total_pages': (total + size - 1) // size,
+                'has_next': end_idx < total,
+                'has_prev': page > 1
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error listing transactions: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
-
-@app.route('/finca/v1/alerts', methods=['GET'])
+@app.route('/finca/v1/alerts', methods=['POST'])
 @token_required
 def finca_list_alerts(current_user):
-    """List FINCA alerts"""
-    status = request.args.get('status')
-    alerts = list(finca_alerts.values())
-    
-    if status:
-        alerts = [a for a in alerts if a['status'] == status]
-    
-    return jsonify({
-        'status': 'success',
-        'alerts': alerts,
-        'total': len(alerts)
-    })
+    """List FINCA alerts with pagination (POST with JSON body)"""
+    try:
+        data = request.json or {}
+        
+        status = data.get('status')
+        page = int(data.get('page', 1))
+        size = int(data.get('size', 20))
+        
+        if page < 1:
+            page = 1
+        if size < 1 or size > 100:
+            size = 20
+        
+        alerts = list(finca_alerts.values())
+        
+        if status:
+            alerts = [a for a in alerts if a.get('status') == status]
+        
+        alerts.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        total = len(alerts)
+        start_idx = (page - 1) * size
+        end_idx = start_idx + size
+        paginated_alerts = alerts[start_idx:end_idx]
+        
+        return jsonify({
+            'status': 'success',
+            'alerts': paginated_alerts,
+            'pagination': {
+                'page': page,
+                'size': size,
+                'total': total,
+                'total_pages': (total + size - 1) // size,
+                'has_next': end_idx < total,
+                'has_prev': page > 1
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error listing alerts: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 @app.route('/finca/v1/alerts/<alert_id>', methods=['GET'])
 @token_required
@@ -2923,21 +3090,53 @@ def finca_assign_alert(current_user, alert_id):
         'alert': alert
     })
 
-@app.route('/finca/v1/cases', methods=['GET'])
+@app.route('/finca/v1/cases', methods=['POST'])
 @token_required
 def finca_list_cases(current_user):
-    """List FINCA cases"""
-    status = request.args.get('status')
-    cases = list(finca_cases.values())
-    
-    if status:
-        cases = [c for c in cases if c['status'] == status]
-    
-    return jsonify({
-        'status': 'success',
-        'cases': cases,
-        'total': len(cases)
-    })
+    """List FINCA cases with pagination (POST with JSON body)"""
+    try:
+        data = request.json or {}
+        
+        status = data.get('status')
+        page = int(data.get('page', 1))
+        size = int(data.get('size', 20))
+        
+        if page < 1:
+            page = 1
+        if size < 1 or size > 100:
+            size = 20
+        
+        cases = list(finca_cases.values())
+        
+        if status:
+            cases = [c for c in cases if c.get('status') == status]
+        
+        cases.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        total = len(cases)
+        start_idx = (page - 1) * size
+        end_idx = start_idx + size
+        paginated_cases = cases[start_idx:end_idx]
+        
+        return jsonify({
+            'status': 'success',
+            'cases': paginated_cases,
+            'pagination': {
+                'page': page,
+                'size': size,
+                'total': total,
+                'total_pages': (total + size - 1) // size,
+                'has_next': end_idx < total,
+                'has_prev': page > 1
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error listing cases: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 @app.route('/finca/v1/cases/<case_id>', methods=['GET'])
 @token_required
