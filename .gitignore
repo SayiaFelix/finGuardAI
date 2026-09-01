@@ -4,3 +4,16 @@ cache/
 delete.py
 logs/
 *.log
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+
+# Environment variables
+.env
+
+# Local database backup
+database/fraudsentinel_local_backup.db

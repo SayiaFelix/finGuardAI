@@ -1,0 +1,62 @@
+{
+  "status": "success",
+  "customers": [
+    {
+      "customer_id": "C00001",
+      "full_name": "Samuel Njoroge",
+      "customer_segment": "LOAN",
+      "home_city": "NAIROBI",
+      "account_status": "ACTIVE",
+      "risk_profile": "LOW",
+      "branch_code": "NRB001",
+      "currency": "KES"
+    },
+    {
+      "customer_id": "C00002",
+      "full_name": "Beatrice Wambui",
+      "customer_segment": "LOAN",
+      "home_city": "NAIROBI",
+      "account_status": "ACTIVE",
+      "risk_profile": "LOW",
+      "branch_code": "NRB001",
+      "currency": "KES"
+    },
+    {
+      "customer_id": "C00003",
+      "full_name": "Joseph Mugo",
+      "customer_segment": "SALARIED",
+      "home_city": "NAIROBI",
+      "account_status": "ACTIVE",
+      "risk_profile": "LOW",
+      "branch_code": "NRB001",
+      "currency": "KES"
+    },
+    {
+      "customer_id": "C00004",
+      "full_name": "Michael Kariuki",
+      "customer_segment": "SALARIED",
+      "home_city": "ELDORET",
+      "account_status": "ACTIVE",
+      "risk_profile": "LOW",
+      "branch_code": "ELD001",
+      "currency": "KES"
+    },
+    {
+      "customer_id": "C00005",
+      "full_name": "Faith Njenga",
+      "customer_segment": "RETAIL_LOW",
+      "home_city": "NAIROBI",
+      "account_status": "ACTIVE",
+      "risk_profile": "LOW",
+      "branch_code": "NRB001",
+      "currency": "KES"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "size": 5,
+    "total": 1000,
+    "total_pages": 200,
+    "has_more": true
+  }
+}
