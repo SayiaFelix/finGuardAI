@@ -40,7 +40,11 @@ from database.db_manager import save_transaction_to_db, save_feedback_to_db
 from database.db_manager import SessionLocal, Transaction
 
 from database.db_manager import (
-    save_case_to_db,
+    save_transaction_to_db,
+    save_feedback_to_db,
+    save_alert_to_db,      #
+    save_case_to_db,       
+    get_alerts_from_db,
     get_cases_from_db,
     update_case_in_db,
     delete_case_from_db,
@@ -48,6 +52,8 @@ from database.db_manager import (
     add_case_note,
     resolve_case
 )
+
+
 
 from database.db_manager import SessionLocal, Transaction
 from sqlalchemy import desc
