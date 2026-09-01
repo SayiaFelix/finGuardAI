@@ -40,10 +40,13 @@ from database.db_manager import save_transaction_to_db, save_feedback_to_db
 from database.db_manager import SessionLocal, Transaction
 
 from database.db_manager import (
-    save_transaction_to_db, 
-    save_feedback_to_db,
-    save_alert_to_db,     
-    save_case_to_db   
+    save_case_to_db,
+    get_cases_from_db,
+    update_case_in_db,
+    delete_case_from_db,
+    assign_case_to_analyst,
+    add_case_note,
+    resolve_case
 )
 
 from database.db_manager import SessionLocal, Transaction
@@ -3728,21 +3731,21 @@ def finca_list_alerts(current_user):
         
         status = data.get('status')
         page = int(data.get('page', 1))
-        size = int(data.get('size', 20))
+        size = int(data.get('size', 1000))
         
         if page < 1:
             page = 1
-        if size < 1 or size > 100:
-            size = 20
+        if size < 1 or size > 1000:
+            size = 1000
         
-        # Try SQLite first (like transactions_endpoint)
+        # Try SQLite first
         try:
             from database.db_manager import get_alerts_from_db
             alerts, total = get_alerts_from_db(status=status, page=page, size=size)
             
             alert_list = []
             for alert in alerts:
-                alert_list.append({
+                alert_dict = {
                     'id': alert.id,
                     'transaction_id': alert.transaction_id,
                     'customer_id': alert.customer_id,
@@ -3756,8 +3759,14 @@ def finca_list_alerts(current_user):
                     'status': alert.status,
                     'created_at': alert.created_at.isoformat() if alert.created_at else None,
                     'assigned_to': alert.assigned_to,
-                    'assigned_at': alert.assigned_at.isoformat() if alert.assigned_at else None
-                })
+                    'assigned_at': alert.assigned_at.isoformat() if alert.assigned_at else None,
+                    'resolved_at': alert.resolved_at.isoformat() if alert.resolved_at else None,
+                    'resolution_notes': alert.resolution_notes
+                }
+                alert_list.append(alert_dict)
+                
+                # ✅ POPULATE IN-MEMORY DICTIONARY
+                finca_alerts[alert.id] = alert_dict
             
             return jsonify({
                 'status': 'success',
@@ -3775,7 +3784,7 @@ def finca_list_alerts(current_user):
             
         except Exception as e:
             logger.warning(f"SQLite alerts read failed, falling back to in-memory: {e}")
-            # Fallback to in-memory (same as before)
+            # Fallback to in-memory
             alerts = list(finca_alerts.values())
             
             if status:
@@ -3855,6 +3864,162 @@ def finca_get_alert(current_user, alert_id):
             'message': str(e)
         }), 500
 
+@app.route('/v1/api/finca/case', methods=['POST'])
+@token_required
+def finca_create_case(current_user):
+    """
+    Create a new case - POST /v1/api/finca/case
+    """
+    try:
+        data = request.json
+        
+        # Generate case ID
+        case_id = generate_finca_id('CASE')
+        
+        # Extract data
+        alert_id = data.get('alert_id')
+        customer_id = data.get('customer_id')
+        final_risk_level = data.get('final_risk_level', 'MEDIUM')
+        risk_score = data.get('risk_score', 50)
+        ml_risk_level = data.get('ml_risk_level', 'MEDIUM')
+        status = data.get('status', 'OPEN')
+        priority = data.get('priority', 'NORMAL')
+        assigned_to = data.get('assigned_to')
+        notes = data.get('notes', [])
+        timeline = data.get('timeline', [])
+        
+        # ✅ Get username safely from User object
+        username = current_user.username if hasattr(current_user, 'username') else 'System'
+        
+        # Create case data
+        case_data = {
+            'id': case_id,
+            'alert_id': alert_id,
+            'customer_id': customer_id,
+            'final_risk_level': final_risk_level,
+            'risk_score': risk_score,
+            'ml_risk_level': ml_risk_level,
+            'status': status,
+            'priority': priority,
+            'assigned_to': assigned_to,
+            'notes': notes,
+            'timeline': timeline or [
+                {
+                    'timestamp': get_nairobi_time(),
+                    'action': 'Case created manually by analyst',
+                    'actor': username
+                }
+            ],
+            'resolution': None,
+            'created_at': get_nairobi_time(),
+            'updated_at': get_nairobi_time()
+        }
+        
+        # Save to in-memory storage
+        finca_cases[case_id] = case_data
+        
+        # Save to SQLite database
+        from database.db_manager import save_case_to_db
+        save_case_to_db(case_data)
+        
+        logger.info(f"Case {case_id} created by {username}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Case created successfully',
+            'case': case_data
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creating case: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/v1/api/finca/case/<case_id>', methods=['PUT'])
+@token_required
+def finca_update_case(current_user, case_id):
+    """
+    Update an existing case - PUT /v1/api/finca/case/<case_id>
+    """
+    try:
+        data = request.json
+        
+        # Check if case exists
+        if case_id not in finca_cases:
+            return jsonify({
+                'status': 'error',
+                'message': 'Case not found'
+            }), 404
+        
+        # Update case
+        case = finca_cases[case_id]
+        case.update({
+            'status': data.get('status', case.get('status')),
+            'priority': data.get('priority', case.get('priority')),
+            'assigned_to': data.get('assigned_to', case.get('assigned_to')),
+            'final_risk_level': data.get('final_risk_level', case.get('final_risk_level')),
+            'risk_score': data.get('risk_score', case.get('risk_score')),
+            'notes': data.get('notes', case.get('notes', [])),
+            'timeline': data.get('timeline', case.get('timeline', [])),
+            'updated_at': get_nairobi_time()
+        })
+        
+        # Save to database
+        from database.db_manager import update_case_in_db
+        update_case_in_db(case_id, case)
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Case updated successfully',
+            'case': case
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error updating case: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+@app.route('/v1/api/finca/case/<case_id>', methods=['DELETE'])
+@token_required
+def finca_delete_case(current_user, case_id):
+    """
+    Delete a case - DELETE /v1/api/finca/case/<case_id>
+    """
+    try:
+        if case_id not in finca_cases:
+            return jsonify({
+                'status': 'error',
+                'message': 'Case not found'
+            }), 404
+        
+        # Remove from in-memory
+        del finca_cases[case_id]
+        
+        # Remove from database
+        from database.db_manager import delete_case_from_db
+        delete_case_from_db(case_id)
+        
+        logger.info(f"Case {case_id} deleted by {current_user.get('username', 'Analyst')}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Case deleted successfully'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error deleting case: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+        
 @app.route('/v1/api/finca/cases', methods=['POST'])
 @token_required
 def finca_list_cases(current_user):
@@ -3864,12 +4029,12 @@ def finca_list_cases(current_user):
         
         status = data.get('status')
         page = int(data.get('page', 1))
-        size = int(data.get('size', 20))
+        size = int(data.get('size', 1000))
         
         if page < 1:
             page = 1
-        if size < 1 or size > 100:
-            size = 20
+        if size < 1 or size > 1000:
+            size = 1000
         
         # Try SQLite first (like transactions_endpoint)
         try:
@@ -3945,6 +4110,77 @@ def finca_list_cases(current_user):
             'message': str(e)
         }), 500
 
+@app.route('/v1/api/finca/alerts/<alert_id>/read', methods=['POST'])
+@token_required
+def finca_mark_alert_read(current_user, alert_id):
+    """Mark alert as read - SQLite first, in-memory fallback"""
+    try:
+        alert = None
+        
+        # === TRY SQLITE FIRST ===
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            alert_db = db.query(Alert).filter(Alert.id == alert_id).first()
+            
+            if alert_db:
+                # SQLite doesn't have a 'read' column, so we track it via status
+                # Or you can add a 'read' column to the Alert model
+                # For now, we'll just update status if it's NEW
+                if alert_db.status == 'NEW':
+                    alert_db.status = 'READ'
+                
+                db.commit()
+                db.refresh(alert_db)
+                db.close()
+                
+                alert = {
+                    'id': alert_db.id,
+                    'status': alert_db.status,
+                    'read': True
+                }
+                
+                # Update in-memory
+                if alert_id in finca_alerts:
+                    finca_alerts[alert_id]['status'] = alert_db.status
+                    finca_alerts[alert_id]['read'] = True
+                
+                logger.info(f"Alert {alert_id} marked as read by {current_user.username if hasattr(current_user, 'username') else 'System'}")
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': 'Alert marked as read',
+                    'alert': alert
+                }), 200
+                
+        except Exception as e:
+            logger.warning(f"SQLite read failed: {e}")
+        
+        # === FALLBACK TO IN-MEMORY ===
+        if alert_id in finca_alerts:
+            alert = finca_alerts[alert_id]
+            alert['read'] = True
+            if alert.get('status') == 'NEW':
+                alert['status'] = 'READ'
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'Alert marked as read (memory)',
+                'alert': alert
+            }), 200
+        
+        return jsonify({
+            'status': 'error',
+            'message': f'Alert with ID {alert_id} not found'
+        }), 404
+        
+    except Exception as e:
+        logger.error(f"Error marking alert read: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+        
 @app.route('/v1/api/finca/cases/<case_id>', methods=['GET'])
 @token_required
 def finca_get_case(current_user, case_id):
@@ -3990,149 +4226,393 @@ def finca_get_case(current_user, case_id):
             'status': 'error',
             'message': str(e)
         }), 500
-        
+
 @app.route('/v1/api/finca/alerts/<alert_id>/assign', methods=['POST'])
 @token_required
 def finca_assign_alert(current_user, alert_id):
-    """Assign alert to analyst"""
-    alert = finca_alerts.get(alert_id)
-    if not alert:
+    """Assign alert to analyst - SQLite first, in-memory fallback"""
+    try:
+        data = request.json
+        analyst = data.get('analyst')
+        
+        if not analyst:
+            return jsonify({
+                'status': 'error',
+                'message': 'Analyst name required'
+            }), 400
+        
+        alert = None
+        
+        # === TRY SQLITE FIRST ===
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            alert_db = db.query(Alert).filter(Alert.id == alert_id).first()
+            
+            if alert_db:
+                alert_db.assigned_to = analyst
+                alert_db.status = 'ASSIGNED'
+                alert_db.assigned_at = datetime.utcnow()
+                
+                db.commit()
+                db.refresh(alert_db)
+                db.close()
+                
+                # Build alert response
+                alert = {
+                    'id': alert_db.id,
+                    'transaction_id': alert_db.transaction_id,
+                    'customer_id': alert_db.customer_id,
+                    'risk_score': alert_db.risk_score,
+                    'ml_risk_level': alert_db.ml_risk_level,
+                    'final_risk_level': alert_db.final_risk_level,
+                    'rule_risk_level': alert_db.rule_risk_level,
+                    'triggered_rules': alert_db.triggered_rules,
+                    'reasons': alert_db.reasons,
+                    'decision': alert_db.decision,
+                    'status': alert_db.status,
+                    'created_at': alert_db.created_at.isoformat() if alert_db.created_at else None,
+                    'assigned_to': alert_db.assigned_to,
+                    'assigned_at': alert_db.assigned_at.isoformat() if alert_db.assigned_at else None
+                }
+                
+                # Update in-memory
+                finca_alerts[alert_id] = alert
+                
+                logger.info(f"Alert {alert_id} assigned to {analyst} in SQLite")
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': f'Alert assigned to {analyst}',
+                    'alert': alert
+                }), 200
+                
+        except Exception as e:
+            logger.warning(f"SQLite assign failed: {e}")
+        
+        # === FALLBACK TO IN-MEMORY ===
+        if alert_id in finca_alerts:
+            alert = finca_alerts[alert_id]
+            alert['assigned_to'] = analyst
+            alert['status'] = 'ASSIGNED'
+            alert['assigned_at'] = datetime.now().isoformat()
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'Alert assigned to {analyst} (memory)',
+                'alert': alert
+            }), 200
+        
         return jsonify({
             'status': 'error',
-            'message': 'Alert not found'
+            'message': f'Alert with ID {alert_id} not found'
         }), 404
-    
-    data = request.json
-    analyst = data.get('analyst')
-    
-    if not analyst:
+        
+    except Exception as e:
+        logger.error(f"Error assigning alert: {str(e)}")
         return jsonify({
             'status': 'error',
-            'message': 'Analyst name required'
-        }), 400
-    
-    alert['assigned_to'] = analyst
-    alert['status'] = 'ASSIGNED'
-    alert['assigned_at'] = datetime.now().isoformat()
-    
-    return jsonify({
-        'status': 'success',
-        'alert': alert
-    })
+            'message': str(e)
+        }), 500
+
 
 @app.route('/v1/api/finca/cases/<case_id>/assign', methods=['POST'])
 @token_required
 def finca_assign_case(current_user, case_id):
     """Assign case to analyst"""
-    case = finca_cases.get(case_id)
-    if not case:
+    try:
+        data = request.json
+        analyst = data.get('analyst')
+        
+        if not analyst:
+            return jsonify({
+                'status': 'error',
+                'message': 'Analyst name required'
+            }), 400
+        
+        # ✅ Get username safely
+        username = current_user.username if hasattr(current_user, 'username') else 'System'
+        
+        # Try SQLite first
+        try:
+            from database.db_manager import SessionLocal, Case
+            db = SessionLocal()
+            case_db = db.query(Case).filter(Case.id == case_id).first()
+            
+            if case_db:
+                case_db.assigned_to = analyst
+                case_db.status = 'INVESTIGATING'
+                
+                timeline = case_db.timeline or []
+                timeline.append({
+                    'timestamp': get_nairobi_time(),
+                    'action': f'Assigned to {analyst}',
+                    'actor': username
+                })
+                case_db.timeline = timeline
+                case_db.updated_at = datetime.utcnow()
+                
+                db.commit()
+                db.refresh(case_db)
+                db.close()
+                
+                # Build case response
+                case = {
+                    'id': case_db.id,
+                    'alert_id': case_db.alert_id,
+                    'customer_id': case_db.customer_id,
+                    'risk_score': case_db.risk_score,
+                    'ml_risk_level': case_db.ml_risk_level,
+                    'final_risk_level': case_db.final_risk_level,
+                    'status': case_db.status,
+                    'priority': case_db.priority,
+                    'assigned_to': case_db.assigned_to,
+                    'notes': case_db.notes,
+                    'timeline': case_db.timeline,
+                    'resolution': case_db.resolution,
+                    'created_at': case_db.created_at.isoformat() if case_db.created_at else None,
+                    'updated_at': case_db.updated_at.isoformat() if case_db.updated_at else None
+                }
+                
+                finca_cases[case_id] = case
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': f'Case assigned to {analyst}',
+                    'case': case
+                }), 200
+                
+        except Exception as e:
+            logger.warning(f"SQLite assign failed: {e}")
+        
+        # Fallback to in-memory
+        if case_id in finca_cases:
+            case = finca_cases[case_id]
+            case['assigned_to'] = analyst
+            case['status'] = 'INVESTIGATING'
+            case['timeline'].append({
+                'timestamp': get_nairobi_time(),
+                'action': f'Assigned to {analyst}',
+                'actor': username
+            })
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'Case assigned to {analyst} (memory)',
+                'case': case
+            }), 200
+        
         return jsonify({
             'status': 'error',
-            'message': 'Case not found'
+            'message': f'Case with ID {case_id} not found'
         }), 404
-    
-    data = request.json
-    analyst = data.get('analyst')
-    
-    if not analyst:
+        
+    except Exception as e:
+        logger.error(f"Error assigning case: {str(e)}")
         return jsonify({
             'status': 'error',
-            'message': 'Analyst name required'
-        }), 400
-    
-    case['assigned_to'] = analyst
-    case['status'] = 'INVESTIGATING'
-    case['timeline'].append({
-        'timestamp': datetime.now().isoformat(),
-        'action': f'Assigned to {analyst}',
-        'actor': 'System'
-    })
-    
-    return jsonify({
-        'status': 'success',
-        'case': case
-    })
-
+            'message': str(e)
+        }), 500
+       
 @app.route('/v1/api/finca/cases/<case_id>/notes', methods=['POST'])
 @token_required
 def finca_add_note(current_user, case_id):
     """Add investigation note"""
-    case = finca_cases.get(case_id)
-    if not case:
+    try:
+        data = request.json
+        note = data.get('note')
+        analyst = data.get('analyst', 'Analyst')
+        
+        if not note:
+            return jsonify({
+                'status': 'error',
+                'message': 'Note required'
+            }), 400
+        
+        # ✅ Get username safely
+        username = current_user.username if hasattr(current_user, 'username') else 'System'
+        
+        # Try SQLite first
+        try:
+            from database.db_manager import SessionLocal, Case
+            db = SessionLocal()
+            case_db = db.query(Case).filter(Case.id == case_id).first()
+            
+            if case_db:
+                notes = case_db.notes or []
+                notes.append({
+                    'timestamp': get_nairobi_time(),
+                    'analyst': analyst,
+                    'note': note
+                })
+                case_db.notes = notes
+                
+                timeline = case_db.timeline or []
+                timeline.append({
+                    'timestamp': get_nairobi_time(),
+                    'action': f'Added note: {note[:50]}...',
+                    'actor': username
+                })
+                case_db.timeline = timeline
+                case_db.updated_at = datetime.utcnow()
+                
+                db.commit()
+                db.refresh(case_db)
+                db.close()
+                
+                case = {
+                    'id': case_db.id,
+                    'notes': case_db.notes,
+                    'timeline': case_db.timeline,
+                    'updated_at': case_db.updated_at.isoformat() if case_db.updated_at else None
+                }
+                
+                if case_id in finca_cases:
+                    finca_cases[case_id]['notes'] = case_db.notes
+                    finca_cases[case_id]['timeline'] = case_db.timeline
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': 'Note added',
+                    'case': case
+                }), 200
+        except Exception as e:
+            logger.warning(f"SQLite note failed: {e}")
+        
+        # Fallback to in-memory
+        if case_id in finca_cases:
+            case = finca_cases[case_id]
+            case['notes'].append({
+                'timestamp': get_nairobi_time(),
+                'analyst': analyst,
+                'note': note
+            })
+            case['timeline'].append({
+                'timestamp': get_nairobi_time(),
+                'action': f'Added note: {note[:50]}...',
+                'actor': username
+            })
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'Note added (memory)',
+                'case': case
+            }), 200
+        
         return jsonify({
             'status': 'error',
-            'message': 'Case not found'
+            'message': f'Case with ID {case_id} not found'
         }), 404
-    
-    data = request.json
-    note = data.get('note')
-    analyst = data.get('analyst', 'Analyst')
-    
-    if not note:
+        
+    except Exception as e:
+        logger.error(f"Error adding note: {str(e)}")
         return jsonify({
             'status': 'error',
-            'message': 'Note required'
-        }), 400
-    
-    case['notes'].append({
-        'timestamp': datetime.now().isoformat(),
-        'analyst': analyst,
-        'note': note
-    })
-    
-    case['timeline'].append({
-        'timestamp': datetime.now().isoformat(),
-        'action': f'Added note: {note[:50]}...',
-        'actor': analyst
-    })
-    
-    return jsonify({
-        'status': 'success',
-        'message': 'Note added',
-        'case': case
-    })
+            'message': str(e)
+        }), 500
 
 @app.route('/v1/api/finca/cases/<case_id>/resolve', methods=['POST'])
 @token_required
 def finca_resolve_case(current_user, case_id):
     """Resolve a case"""
-    case = finca_cases.get(case_id)
-    if not case:
+    try:
+        data = request.json
+        resolution = data.get('resolution')
+        notes = data.get('notes', '')
+        analyst = data.get('analyst', 'Analyst')
+        
+        if resolution not in ['FRAUD_CONFIRMED', 'FALSE_POSITIVE']:
+            return jsonify({
+                'status': 'error',
+                'message': 'Resolution must be FRAUD_CONFIRMED or FALSE_POSITIVE'
+            }), 400
+        
+        # ✅ Get username safely
+        username = current_user.username if hasattr(current_user, 'username') else 'System'
+        
+        # Try SQLite first
+        try:
+            from database.db_manager import SessionLocal, Case
+            db = SessionLocal()
+            case_db = db.query(Case).filter(Case.id == case_id).first()
+            
+            if case_db:
+                case_db.status = 'RESOLVED'
+                case_db.resolution = {
+                    'verdict': resolution,
+                    'notes': notes,
+                    'resolved_by': analyst,
+                    'resolved_at': get_nairobi_time()
+                }
+                
+                timeline = case_db.timeline or []
+                timeline.append({
+                    'timestamp': get_nairobi_time(),
+                    'action': f'Case resolved: {resolution}',
+                    'actor': username
+                })
+                case_db.timeline = timeline
+                case_db.updated_at = datetime.utcnow()
+                
+                db.commit()
+                db.refresh(case_db)
+                db.close()
+                
+                case = {
+                    'id': case_db.id,
+                    'status': case_db.status,
+                    'resolution': case_db.resolution,
+                    'timeline': case_db.timeline,
+                    'updated_at': case_db.updated_at.isoformat() if case_db.updated_at else None
+                }
+                
+                if case_id in finca_cases:
+                    finca_cases[case_id]['status'] = case_db.status
+                    finca_cases[case_id]['resolution'] = case_db.resolution
+                    finca_cases[case_id]['timeline'] = case_db.timeline
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': f'Case resolved as {resolution}',
+                    'case': case
+                }), 200
+        except Exception as e:
+            logger.warning(f"SQLite resolve failed: {e}")
+        
+        # Fallback to in-memory
+        if case_id in finca_cases:
+            case = finca_cases[case_id]
+            case['status'] = 'RESOLVED'
+            case['resolution'] = {
+                'verdict': resolution,
+                'notes': notes,
+                'resolved_by': analyst,
+                'resolved_at': get_nairobi_time()
+            }
+            case['timeline'].append({
+                'timestamp': get_nairobi_time(),
+                'action': f'Case resolved: {resolution}',
+                'actor': username
+            })
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'Case resolved as {resolution} (memory)',
+                'case': case
+            }), 200
+        
         return jsonify({
             'status': 'error',
-            'message': 'Case not found'
+            'message': f'Case with ID {case_id} not found'
         }), 404
-    
-    data = request.json
-    resolution = data.get('resolution')  # 'FRAUD_CONFIRMED' or 'FALSE_POSITIVE'
-    notes = data.get('notes', '')
-    analyst = data.get('analyst', 'Analyst')
-    
-    if resolution not in ['FRAUD_CONFIRMED', 'FALSE_POSITIVE']:
+        
+    except Exception as e:
+        logger.error(f"Error resolving case: {str(e)}")
         return jsonify({
             'status': 'error',
-            'message': 'Resolution must be FRAUD_CONFIRMED or FALSE_POSITIVE'
-        }), 400
-    
-    case['status'] = 'RESOLVED'
-    case['resolution'] = {
-        'verdict': resolution,
-        'notes': notes,
-        'resolved_by': analyst,
-        'resolved_at': datetime.now().isoformat()
-    }
-    case['timeline'].append({
-        'timestamp': datetime.now().isoformat(),
-        'action': f'Case resolved: {resolution}',
-        'actor': analyst
-    })
-    
-    return jsonify({
-        'status': 'success',
-        'message': f'Case resolved as {resolution}',
-        'case': case
-    })
-
+            'message': str(e)
+        }), 500
+   
 @app.route('/v1/api/finca/dashboard', methods=['GET'])
 @token_required
 def finca_dashboard(current_user):

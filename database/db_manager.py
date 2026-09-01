@@ -976,7 +976,203 @@ def get_cases_from_db(case_id=None, status=None, page=1, size=20):
         return [], 0
     finally:
         db.close()
-           
+
+def update_case_in_db(case_id, case_data):
+    """Update an existing case in SQLite"""
+    db = SessionLocal()
+    try:
+        case = db.query(Case).filter(Case.id == case_id).first()
+        if not case:
+            print(f"❌ Case {case_id} not found for update")
+            return False
+        
+        # Update fields
+        if 'status' in case_data:
+            case.status = case_data['status']
+        if 'priority' in case_data:
+            case.priority = case_data['priority']
+        if 'assigned_to' in case_data:
+            case.assigned_to = case_data['assigned_to']
+        if 'final_risk_level' in case_data:
+            case.final_risk_level = case_data['final_risk_level']
+        if 'risk_score' in case_data:
+            case.risk_score = float(case_data['risk_score'])
+        if 'notes' in case_data:
+            case.notes = convert_for_json(case_data['notes'])
+        if 'timeline' in case_data:
+            case.timeline = convert_for_json(case_data['timeline'])
+        if 'resolution' in case_data:
+            case.resolution = convert_for_json(case_data['resolution'])
+        
+        case.updated_at = get_nairobi_time()
+        
+        db.commit()
+        db.refresh(case)
+        db.close()
+        print(f"✅ Updated case {case_id} in SQLite")
+        return True
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Database error updating case {case_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    finally:
+        db.close()
+
+
+def delete_case_from_db(case_id):
+    """Delete a case from SQLite (hard delete)"""
+    db = SessionLocal()
+    try:
+        case = db.query(Case).filter(Case.id == case_id).first()
+        if not case:
+            print(f"❌ Case {case_id} not found for deletion")
+            return False
+        
+        db.delete(case)
+        db.commit()
+        db.close()
+        print(f"✅ Deleted case {case_id} from SQLite")
+        return True
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Database error deleting case {case_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    finally:
+        db.close()
+
+
+def assign_case_to_analyst(case_id, analyst):
+    """Assign case to analyst - combines update and timeline"""
+    db = SessionLocal()
+    try:
+        case = db.query(Case).filter(Case.id == case_id).first()
+        if not case:
+            db.close()
+            return False, "Case not found"
+        
+        # Update assignment
+        case.assigned_to = analyst
+        case.status = 'INVESTIGATING'
+        
+        # Add to timeline
+        timeline = case.timeline or []
+        timeline.append({
+            'timestamp': get_nairobi_time().isoformat(),
+            'action': f'Assigned to {analyst}',
+            'actor': 'System'
+        })
+        case.timeline = timeline
+        case.updated_at = get_nairobi_time()
+        
+        db.commit()
+        db.refresh(case)
+        db.close()
+        print(f"✅ Case {case_id} assigned to {analyst}")
+        return True, "Assigned successfully"
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Database error assigning case {case_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False, str(e)
+    finally:
+        db.close()
+
+
+def add_case_note(case_id, note, analyst='Analyst'):
+    """Add note to case - combines update and timeline"""
+    db = SessionLocal()
+    try:
+        case = db.query(Case).filter(Case.id == case_id).first()
+        if not case:
+            db.close()
+            return False, "Case not found"
+        
+        # Add note
+        notes = case.notes or []
+        notes.append({
+            'timestamp': get_nairobi_time().isoformat(),
+            'analyst': analyst,
+            'note': note
+        })
+        case.notes = notes
+        
+        # Add to timeline
+        timeline = case.timeline or []
+        timeline.append({
+            'timestamp': get_nairobi_time().isoformat(),
+            'action': f'Added note: {note[:50]}...',
+            'actor': analyst
+        })
+        case.timeline = timeline
+        case.updated_at = get_nairobi_time()
+        
+        db.commit()
+        db.refresh(case)
+        db.close()
+        print(f"✅ Note added to case {case_id}")
+        return True, "Note added"
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Database error adding note to case {case_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False, str(e)
+    finally:
+        db.close()
+
+
+def resolve_case(case_id, resolution, notes='', analyst='Analyst'):
+    """Resolve a case - combines update and timeline"""
+    db = SessionLocal()
+    try:
+        case = db.query(Case).filter(Case.id == case_id).first()
+        if not case:
+            db.close()
+            return False, "Case not found"
+        
+        # Update resolution
+        case.status = 'RESOLVED'
+        case.resolution = {
+            'verdict': resolution,  # 'FRAUD_CONFIRMED' or 'FALSE_POSITIVE'
+            'notes': notes,
+            'resolved_by': analyst,
+            'resolved_at': get_nairobi_time().isoformat()
+        }
+        
+        # Add to timeline
+        timeline = case.timeline or []
+        timeline.append({
+            'timestamp': get_nairobi_time().isoformat(),
+            'action': f'Case resolved: {resolution}',
+            'actor': analyst
+        })
+        case.timeline = timeline
+        case.updated_at = get_nairobi_time()
+        
+        db.commit()
+        db.refresh(case)
+        db.close()
+        print(f"✅ Case {case_id} resolved as {resolution}")
+        return True, "Resolved successfully"
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Database error resolving case {case_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False, str(e)
+    finally:
+        db.close()
+             
 def init_default_rules():
     """Initialize default rules if no rules exist"""
     rules = get_all_rules_from_db(include_inactive=True)
