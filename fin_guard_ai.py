@@ -3246,8 +3246,7 @@ def process_transaction_like_finca(tx_data):
             
             # Save to in-memory (SAME as finca_submit_transaction)
             finca_alerts[alert_id] = alert_data
-            
-            # Save to SQLite using the new function
+
             save_alert_to_db(alert_data)
             
             # Create case if CRITICAL
