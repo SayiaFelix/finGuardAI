@@ -257,6 +257,7 @@ class FINCAAdapter:
         if 'Risk_Score' in transaction_details:
             transaction_details['Risk_Score'] = finca_risk_score
         
+        
         risk_category_lower = risk_category.lower()
         
         if "critical" in risk_category_lower:
