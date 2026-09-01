@@ -1,3 +1,4 @@
+
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -30,10 +31,6 @@ def _group_by_customer(records):
     return dict(grouped)
 
 
-# ------------------------------------------------------------------
-# Load once at application startup
-# ------------------------------------------------------------------
-
 CUSTOMERS = _load_json("customers.json")
 ACCOUNTS = _load_json("accounts.json")
 TRANSACTIONS = _load_json("transactions.json")
@@ -45,15 +42,7 @@ BEHAVIORAL_PROFILES = _load_json("behavioral_profiles.json")
 RISK_FEATURES = _load_json("risk_features.json")
 
 
-# ------------------------------------------------------------------
-# Indexes
-# ------------------------------------------------------------------
-
-CUSTOMERS_BY_ID = {
-    row["customer_id"]: row
-    for row in CUSTOMERS
-}
-
+CUSTOMERS_BY_ID = {row["customer_id"]: row for row in CUSTOMERS}
 ACCOUNTS_BY_CUSTOMER = _group_by_customer(ACCOUNTS)
 TRANSACTIONS_BY_CUSTOMER = _group_by_customer(TRANSACTIONS)
 DEVICES_BY_CUSTOMER = _group_by_customer(DEVICES)
@@ -62,17 +51,21 @@ BENEFICIARIES_BY_CUSTOMER = _group_by_customer(BENEFICIARIES)
 AUTH_BY_CUSTOMER = _group_by_customer(AUTH_EVENTS)
 RISK_BY_CUSTOMER = _group_by_customer(RISK_FEATURES)
 
+RISK_BY_TRANSACTION = {
+    row["transaction_id"]: row
+    for row in RISK_FEATURES
+    if row.get("transaction_id")
+}
+
 BEHAVIOR_BY_CUSTOMER = {
     row["customer_id"]: row
     for row in BEHAVIORAL_PROFILES
 }
 
 _device_customers = defaultdict(set)
-
 for relationship in DEVICE_RELATIONSHIPS:
     device_id = relationship.get("device_id")
     customer_id = relationship.get("customer_id")
-
     if device_id and customer_id:
         _device_customers[device_id].add(customer_id)
 
@@ -82,49 +75,38 @@ DEVICE_CUSTOMER_COUNTS = {
 }
 
 
-# ------------------------------------------------------------------
-# Repository API
-# ------------------------------------------------------------------
-
 def get_all_customers():
     return CUSTOMERS
-
 
 def get_customer(customer_id):
     return CUSTOMERS_BY_ID.get(customer_id)
 
-
 def get_customer_accounts(customer_id):
     return ACCOUNTS_BY_CUSTOMER.get(customer_id, [])
-
 
 def get_customer_transactions(customer_id):
     return TRANSACTIONS_BY_CUSTOMER.get(customer_id, [])
 
-
 def get_customer_devices(customer_id):
     return DEVICES_BY_CUSTOMER.get(customer_id, [])
-
 
 def get_customer_device_relationships(customer_id):
     return DEVICE_RELATIONSHIPS_BY_CUSTOMER.get(customer_id, [])
 
-
 def get_customer_beneficiaries(customer_id):
     return BENEFICIARIES_BY_CUSTOMER.get(customer_id, [])
-
 
 def get_customer_auth_events(customer_id):
     return AUTH_BY_CUSTOMER.get(customer_id, [])
 
-
 def get_customer_behavior_profile(customer_id):
     return BEHAVIOR_BY_CUSTOMER.get(customer_id)
-
 
 def get_customer_risk_features(customer_id):
     return RISK_BY_CUSTOMER.get(customer_id, [])
 
+def get_transaction_risk(transaction_id):
+    return RISK_BY_TRANSACTION.get(transaction_id, {})
 
 def get_device_customer_count(device_id):
     return DEVICE_CUSTOMER_COUNTS.get(device_id, 0)
