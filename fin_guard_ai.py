@@ -1503,7 +1503,7 @@ def transactions_endpoint(current_user):
         else:
             ##all transactions - use SQLite
             page = data.get('page', 1)
-            size = data.get('size', 10)
+            size = data.get('size', 1000)
             
             if not isinstance(page, int) or page < 1:
                 return jsonify({
@@ -1511,10 +1511,10 @@ def transactions_endpoint(current_user):
                     'message': 'Page must be an integer greater than 0.'
                 }), 400
             
-            if not isinstance(size, int) or size < 1 or size > 100:
+            if not isinstance(size, int) or size < 1 or size > 1000:
                 return jsonify({
                     'status': 'error',
-                    'message': 'Size must be an integer between 1 and 100.'
+                    'message': 'Size must be an integer between 1 and 1000.'
                 }), 400
             
             try:
@@ -1990,10 +1990,10 @@ def get_fraud_history(current_user):
                 'message': 'Page must be an integer greater than 0.'
             }), 400
         
-        if not isinstance(size, int) or size < 1 or size > 100:
+        if not isinstance(size, int) or size < 1 or size > 1000:
             return jsonify({
                 'status': 'error',
-                'message': 'Size must be an integer between 1 and 100.'
+                'message': 'Size must be an integer between 1 and 1000.'
             }), 400
 
         # Try SQLite first
@@ -3366,50 +3366,53 @@ def process_transaction_like_finca(tx_data):
 def generate_transactions_for_simulation(count=20, fraud_ratio=0.3):
     """
     Generate transactions in EXACTLY the same format as your API expects
+    with realistic CRITICAL cases
     """
     import random
-    from datetime import datetime
+    from datetime import datetime, timedelta
     
-    # Customer data
+    # Enhanced customer data with more realistic profiles
     customers = [
-        {'id': 'CUST-001', 'name': 'John Okello', 'location': 'Kampala', 'avg': 180000, 'phone': '+256-712-345-678', 'email': 'john.okello@email.com'},
-        {'id': 'CUST-002', 'name': 'Sarah Atim', 'location': 'Kampala', 'avg': 250000, 'phone': '+256-713-456-789', 'email': 'sarah.atim@email.com'},
-        {'id': 'CUST-003', 'name': 'Peter Ochieng', 'location': 'Nairobi', 'avg': 320000, 'phone': '+254-712-345-678', 'email': 'peter.ochieng@email.com'},
-        {'id': 'CUST-004', 'name': 'Grace Mbugua', 'location': 'Mombasa', 'avg': 150000, 'phone': '+254-713-456-789', 'email': 'grace.mbugua@email.com'},
-        {'id': 'CUST-005', 'name': 'David Mwesigwa', 'location': 'Kampala', 'avg': 450000, 'phone': '+256-714-567-890', 'email': 'david.mwesigwa@email.com'},
-        {'id': 'CUST-006', 'name': 'Faith Akinyi', 'location': 'Kisumu', 'avg': 95000, 'phone': '+254-714-567-890', 'email': 'faith.akinyi@email.com'},
-        {'id': 'CUST-007', 'name': 'James Omondi', 'location': 'Nakuru', 'avg': 210000, 'phone': '+254-715-678-901', 'email': 'james.omondi@email.com'},
-        {'id': 'CUST-008', 'name': 'Mary Wanjiru', 'location': 'Nairobi', 'avg': 380000, 'phone': '+254-716-789-012', 'email': 'mary.wanjiru@email.com'},
-        {'id': 'CUST-009', 'name': 'Robert Kiprop', 'location': 'Eldoret', 'avg': 175000, 'phone': '+254-717-890-123', 'email': 'robert.kiprop@email.com'},
-        {'id': 'CUST-010', 'name': 'Jane Auma', 'location': 'Kampala', 'avg': 120000, 'phone': '+256-715-678-901', 'email': 'jane.auma@email.com'}
+        {'id': 'CUST-001', 'name': 'John Okello', 'location': 'Kampala', 'avg': 180000, 'phone': '+256-712-345-678', 'email': 'john.okello@email.com', 'account_age': 315},
+        {'id': 'CUST-002', 'name': 'Sarah Atim', 'location': 'Kampala', 'avg': 250000, 'phone': '+256-713-456-789', 'email': 'sarah.atim@email.com', 'account_age': 208},
+        {'id': 'CUST-003', 'name': 'Peter Ochieng', 'location': 'Nairobi', 'avg': 320000, 'phone': '+254-712-345-678', 'email': 'peter.ochieng@email.com', 'account_age': 144},
+        {'id': 'CUST-004', 'name': 'Grace Mbugua', 'location': 'Mombasa', 'avg': 150000, 'phone': '+254-713-456-789', 'email': 'grace.mbugua@email.com', 'account_age': 176},
+        {'id': 'CUST-005', 'name': 'David Mwesigwa', 'location': 'Kampala', 'avg': 450000, 'phone': '+256-714-567-890', 'email': 'david.mwesigwa@email.com', 'account_age': 360},
+        {'id': 'CUST-006', 'name': 'Faith Akinyi', 'location': 'Kisumu', 'avg': 95000, 'phone': '+254-714-567-890', 'email': 'faith.akinyi@email.com', 'account_age': 805},
+        {'id': 'CUST-007', 'name': 'James Omondi', 'location': 'Nakuru', 'avg': 210000, 'phone': '+254-715-678-901', 'email': 'james.omondi@email.com', 'account_age': 889},
+        {'id': 'CUST-008', 'name': 'Mary Wanjiru', 'location': 'Nairobi', 'avg': 380000, 'phone': '+254-716-789-012', 'email': 'mary.wanjiru@email.com', 'account_age': 808},
+        {'id': 'CUST-009', 'name': 'Robert Kiprop', 'location': 'Eldoret', 'avg': 175000, 'phone': '+254-717-890-123', 'email': 'robert.kiprop@email.com', 'account_age': 193},
+        {'id': 'CUST-010', 'name': 'Jane Auma', 'location': 'Kampala', 'avg': 120000, 'phone': '+256-715-678-901', 'email': 'jane.auma@email.com', 'account_age': 95}
     ]
     
     devices = ['iPhone', 'Samsung', 'MacBook', 'Unknown', 'Huawei', 'Tecno']
     locations = ['Kampala', 'Nairobi', 'Mombasa', 'Kisumu', 'Entebbe', 'International', 'Nakuru', 'Eldoret']
     channels = ['MOBILE_BANKING', 'INTERNET_BANKING', 'ATM', 'AGENCY', 'USSD']
+    transaction_types = ['Transfer', 'Withdrawal', 'Deposit', 'Payment', 'Bill Payment']
     
     transactions = []
     
     for i in range(count):
         customer = random.choice(customers)
         
-        # Determine if fraud
+        # Determine if fraud with weighted probability
         is_fraud = random.random() < fraud_ratio
         
+        # Calculate risk severity level
+        # 0 = Low, 1 = Medium, 2 = High, 3 = Critical
+        risk_severity = 0
+        
         if is_fraud:
-            # Fraudulent transaction
-            amount = random.randint(2000000, 15000000)
-            device = random.choice(['Unknown', 'Unknown', 'Unknown', 'iPhone'])
-            location = random.choice(['International', 'International', 'Nairobi', 'Mombasa'])
-            channel = random.choice(['MOBILE_BANKING', 'INTERNET_BANKING'])
-            hour = random.choice([1, 2, 3, 4, 5, 23, 0])
-            frequency = random.randint(5, 15)
-            is_weekend = 1
-            transaction_type = 'Transfer'
-            ip = f"{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}"
+            # Fraudulent transaction - more severe
+            risk_severity = random.choices([1, 2, 3], weights=[0.1, 0.3, 0.6])[0]
         else:
+            # Normal transaction - mostly low/medium
+            risk_severity = random.choices([0, 1], weights=[0.7, 0.3])[0]
+        
+        # Build transaction based on severity
+        if risk_severity == 0:  # LOW RISK
             # Normal transaction
-            amount = int(random.gauss(customer['avg'], customer['avg'] * 0.3))
+            amount = int(random.gauss(customer['avg'], customer['avg'] * 0.25))
             amount = max(10000, min(amount, 2000000))
             device = random.choice(['iPhone', 'Samsung', 'MacBook', 'Huawei', 'Tecno'])
             location = customer['location']
@@ -3417,8 +3420,52 @@ def generate_transactions_for_simulation(count=20, fraud_ratio=0.3):
             hour = random.randint(8, 21)
             frequency = random.randint(1, 3)
             is_weekend = 1 if random.random() < 0.15 else 0
-            transaction_type = random.choice(['Transfer', 'Withdrawal', 'Deposit', 'Payment'])
+            transaction_type = random.choice(transaction_types)
             ip = f"192.168.{random.randint(1, 255)}.{random.randint(1, 255)}"
+            account_age = customer['account_age']
+            
+        elif risk_severity == 1:  # MEDIUM RISK
+            # Slightly suspicious
+            amount = int(random.gauss(customer['avg'] * 2.5, customer['avg'] * 0.8))
+            amount = max(50000, min(amount, 5000000))
+            device = random.choice(['iPhone', 'Samsung', 'MacBook', 'Huawei', 'Tecno'])
+            # Sometimes unusual location
+            location = random.choice([customer['location'], random.choice(locations)])
+            channel = random.choice(channels)
+            hour = random.randint(6, 23)
+            frequency = random.randint(3, 6)
+            is_weekend = 1 if random.random() < 0.3 else 0
+            transaction_type = random.choice(['Transfer', 'Payment'])
+            ip = f"192.168.{random.randint(1, 255)}.{random.randint(1, 255)}"
+            account_age = random.randint(30, customer['account_age'])
+            
+        elif risk_severity == 2:  # HIGH RISK
+            # Suspicious transaction
+            amount = int(random.gauss(customer['avg'] * 5, customer['avg'] * 1.5))
+            amount = max(200000, min(amount, 10000000))
+            device = random.choice(['Unknown', 'Unknown', 'Unknown', 'iPhone', 'Samsung'])
+            location = random.choice(['International', 'International', customer['location'], random.choice(locations)])
+            channel = random.choice(['MOBILE_BANKING', 'INTERNET_BANKING'])
+            hour = random.choice([1, 2, 3, 4, 5, 22, 23, 0])
+            frequency = random.randint(5, 10)
+            is_weekend = 1
+            transaction_type = 'Transfer'
+            ip = f"{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}"
+            account_age = random.randint(5, 30)
+            
+        else:  # CRITICAL RISK (severity 3)
+            # Very suspicious - multiple red flags
+            amount = int(random.gauss(customer['avg'] * 15, customer['avg'] * 5))
+            amount = max(1000000, min(amount, 25000000))
+            device = random.choice(['Unknown', 'Unknown', 'Unknown', 'Unknown', 'Unknown'])
+            location = random.choice(['International', 'International', 'International'])
+            channel = random.choice(['MOBILE_BANKING', 'INTERNET_BANKING'])
+            hour = random.choice([0, 1, 2, 3, 4, 5])
+            frequency = random.randint(8, 20)
+            is_weekend = 1
+            transaction_type = 'Transfer'
+            ip = f"{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}"
+            account_age = random.randint(1, 15)
         
         # Build transaction
         tx = {
@@ -3437,11 +3484,11 @@ def generate_transactions_for_simulation(count=20, fraud_ratio=0.3):
             # Additional fields
             'ip_address': ip,
             'tx_count_last_hour': frequency,
-            'account_age_days': random.randint(30, 1095),
+            'account_age_days': account_age,
             'avg_transaction_amount': customer['avg'],
             'Transaction_Hour': hour,
             'Is_Weekend': is_weekend,
-            'Day_of_Week': random.randint(0, 6),
+            'Day_of_Week': random.randint(0, 6) if not is_weekend else random.randint(5, 6),
             
             # Transaction type
             'transaction_type': transaction_type,
@@ -3449,12 +3496,106 @@ def generate_transactions_for_simulation(count=20, fraud_ratio=0.3):
             # Metadata for simulation tracking
             '_simulated': True,
             '_is_fraud': is_fraud,
-            '_customer_avg': customer['avg']
+            '_customer_avg': customer['avg'],
+            '_risk_severity': risk_severity
         }
         
         transactions.append(tx)
     
     return transactions
+
+# def generate_transactions_for_simulation(count=20, fraud_ratio=0.3):
+#     """
+#     Generate transactions in EXACTLY the same format as your API expects
+#     """
+#     import random
+#     from datetime import datetime
+    
+#     # Customer data
+#     customers = [
+#         {'id': 'CUST-001', 'name': 'John Okello', 'location': 'Kampala', 'avg': 180000, 'phone': '+256-712-345-678', 'email': 'john.okello@email.com'},
+#         {'id': 'CUST-002', 'name': 'Sarah Atim', 'location': 'Kampala', 'avg': 250000, 'phone': '+256-713-456-789', 'email': 'sarah.atim@email.com'},
+#         {'id': 'CUST-003', 'name': 'Peter Ochieng', 'location': 'Nairobi', 'avg': 320000, 'phone': '+254-712-345-678', 'email': 'peter.ochieng@email.com'},
+#         {'id': 'CUST-004', 'name': 'Grace Mbugua', 'location': 'Mombasa', 'avg': 150000, 'phone': '+254-713-456-789', 'email': 'grace.mbugua@email.com'},
+#         {'id': 'CUST-005', 'name': 'David Mwesigwa', 'location': 'Kampala', 'avg': 450000, 'phone': '+256-714-567-890', 'email': 'david.mwesigwa@email.com'},
+#         {'id': 'CUST-006', 'name': 'Faith Akinyi', 'location': 'Kisumu', 'avg': 95000, 'phone': '+254-714-567-890', 'email': 'faith.akinyi@email.com'},
+#         {'id': 'CUST-007', 'name': 'James Omondi', 'location': 'Nakuru', 'avg': 210000, 'phone': '+254-715-678-901', 'email': 'james.omondi@email.com'},
+#         {'id': 'CUST-008', 'name': 'Mary Wanjiru', 'location': 'Nairobi', 'avg': 380000, 'phone': '+254-716-789-012', 'email': 'mary.wanjiru@email.com'},
+#         {'id': 'CUST-009', 'name': 'Robert Kiprop', 'location': 'Eldoret', 'avg': 175000, 'phone': '+254-717-890-123', 'email': 'robert.kiprop@email.com'},
+#         {'id': 'CUST-010', 'name': 'Jane Auma', 'location': 'Kampala', 'avg': 120000, 'phone': '+256-715-678-901', 'email': 'jane.auma@email.com'}
+#     ]
+    
+#     devices = ['iPhone', 'Samsung', 'MacBook', 'Unknown', 'Huawei', 'Tecno']
+#     locations = ['Kampala', 'Nairobi', 'Mombasa', 'Kisumu', 'Entebbe', 'International', 'Nakuru', 'Eldoret']
+#     channels = ['MOBILE_BANKING', 'INTERNET_BANKING', 'ATM', 'AGENCY', 'USSD']
+    
+#     transactions = []
+    
+#     for i in range(count):
+#         customer = random.choice(customers)
+        
+#         # Determine if fraud
+#         is_fraud = random.random() < fraud_ratio
+        
+#         if is_fraud:
+#             # Fraudulent transaction
+#             amount = random.randint(2000000, 15000000)
+#             device = random.choice(['Unknown', 'Unknown', 'Unknown', 'iPhone'])
+#             location = random.choice(['International', 'International', 'Nairobi', 'Mombasa'])
+#             channel = random.choice(['MOBILE_BANKING', 'INTERNET_BANKING'])
+#             hour = random.choice([1, 2, 3, 4, 5, 23, 0])
+#             frequency = random.randint(5, 15)
+#             is_weekend = 1
+#             transaction_type = 'Transfer'
+#             ip = f"{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}"
+#         else:
+#             # Normal transaction
+#             amount = int(random.gauss(customer['avg'], customer['avg'] * 0.3))
+#             amount = max(10000, min(amount, 2000000))
+#             device = random.choice(['iPhone', 'Samsung', 'MacBook', 'Huawei', 'Tecno'])
+#             location = customer['location']
+#             channel = random.choice(channels)
+#             hour = random.randint(8, 21)
+#             frequency = random.randint(1, 3)
+#             is_weekend = 1 if random.random() < 0.15 else 0
+#             transaction_type = random.choice(['Transfer', 'Withdrawal', 'Deposit', 'Payment'])
+#             ip = f"192.168.{random.randint(1, 255)}.{random.randint(1, 255)}"
+        
+#         # Build transaction
+#         tx = {
+#             # Required fields
+#             'customer_id': customer['id'],
+#             'customer_name': customer['name'],
+#             'customer_email': customer['email'],
+#             'customer_phone': customer['phone'],
+#             'transaction_amount': amount,
+            
+#             # FINCA-specific fields
+#             'device_type': device,
+#             'location': location,
+#             'channel': channel,
+            
+#             # Additional fields
+#             'ip_address': ip,
+#             'tx_count_last_hour': frequency,
+#             'account_age_days': random.randint(30, 1095),
+#             'avg_transaction_amount': customer['avg'],
+#             'Transaction_Hour': hour,
+#             'Is_Weekend': is_weekend,
+#             'Day_of_Week': random.randint(0, 6),
+            
+#             # Transaction type
+#             'transaction_type': transaction_type,
+            
+#             # Metadata for simulation tracking
+#             '_simulated': True,
+#             '_is_fraud': is_fraud,
+#             '_customer_avg': customer['avg']
+#         }
+        
+#         transactions.append(tx)
+    
+#     return transactions
 
 @app.route('/v1/api/finca/simulate_batch/quick', methods=['GET'])
 @token_required
