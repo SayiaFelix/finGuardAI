@@ -59,14 +59,23 @@ from openai import OpenAI
 
 weights_map = load_weights()
 
+from modules.customer360.routes import customer360_bp
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+
 app = Flask(__name__)
-# CORS(app, origins=['https://fraudsentinel-ai.netlify.app', 'http://localhost:4200'])
+
 CORS(app, origins=['*'])
+
+app.register_blueprint(
+    customer360_bp,
+    url_prefix="/finca/v1"
+)
+
 random.seed(42)
 
 load_dotenv() 

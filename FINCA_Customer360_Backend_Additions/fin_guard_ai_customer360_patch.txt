@@ -1,0 +1,20 @@
+# fin_guard_ai.py — Customer 360 integration
+
+# 1. Add this import with the other imports:
+from modules.customer360.routes import customer360_bp
+
+# 2. After:
+#    app = Flask(__name__)
+#    CORS(app, origins=['*'])
+#
+# add:
+app.register_blueprint(
+    customer360_bp,
+    url_prefix="/finca/v1"
+)
+
+# Nothing else in the existing fraud module needs to change.
+#
+# New routes:
+# GET /finca/v1/customers
+# GET /finca/v1/customers/<customer_id>/360

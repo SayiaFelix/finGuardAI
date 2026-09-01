@@ -1,0 +1,353 @@
+{
+  "status": "success",
+  "customer_360": {
+    "customer": {
+      "customer_id": "C00001",
+      "full_name": "Samuel Njoroge",
+      "first_name": "Samuel",
+      "last_name": "Njoroge",
+      "email": "samuel.njoroge.1@demo.example",
+      "phone_number": "+254760008003",
+      "customer_segment": "LOAN",
+      "branch_code": "NRB001",
+      "home_city": "NAIROBI",
+      "account_status": "ACTIVE",
+      "risk_profile": "LOW",
+      "currency": "KES"
+    },
+    "kpis": {
+      "total_balance": 351731.23,
+      "transactions_30d": 4,
+      "average_transaction_amount": 143847.16,
+      "account_count": 1,
+      "known_devices": 2,
+      "failed_logins": 1
+    },
+    "transaction_summary": {
+      "total_transactions": 20,
+      "preferred_channel": "MOBILE_BANKING",
+      "maximum_transaction_amount": 1520134.62,
+      "last_transaction": "2026-08-27T13:23:24+03:00"
+    },
+    "behavior_profile": {
+      "currency": "KES",
+      "average_transaction_amount": 70968.24,
+      "median_transaction_amount": 67798.15,
+      "typical_amount_range": {
+        "min": 60307.64,
+        "max": 85487.29
+      },
+      "average_transaction_frequency": 0.15,
+      "typical_hours": [
+        8,
+        9,
+        10,
+        12,
+        13,
+        14,
+        18,
+        21
+      ],
+      "typical_locations": [
+        "NAIROBI"
+      ],
+      "typical_channels": [
+        "MOBILE_BANKING",
+        "BRANCH",
+        "AGENT_BANKING"
+      ],
+      "typical_device_names": [
+        "Xiaomi Redmi Note 13",
+        "Xiaomi Redmi Note 13"
+      ]
+    },
+    "transaction_trend": [
+      {
+        "date": "2026-07-29",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-07-30",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-07-31",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-01",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-02",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-03",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-04",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-05",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-06",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-07",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-08",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-09",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-10",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-11",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-12",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-13",
+        "transaction_count": 1,
+        "total_amount": 77223.2
+      },
+      {
+        "date": "2026-08-14",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-15",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-16",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-17",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-18",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-19",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-20",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-21",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-22",
+        "transaction_count": 1,
+        "total_amount": 55853.98
+      },
+      {
+        "date": "2026-08-23",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-24",
+        "transaction_count": 1,
+        "total_amount": 68117.02
+      },
+      {
+        "date": "2026-08-25",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-26",
+        "transaction_count": 0,
+        "total_amount": 0.0
+      },
+      {
+        "date": "2026-08-27",
+        "transaction_count": 1,
+        "total_amount": 71981.43
+      }
+    ],
+    "accounts": [
+      {
+        "account_id": "ACC0000001",
+        "account_type": "LOAN",
+        "masked_account_number": "****5307",
+        "current_balance": 351731.23,
+        "currency": "KES",
+        "status": "ACTIVE"
+      }
+    ],
+    "devices": [
+      {
+        "device_id": "DVC-7BDCB9CEA657",
+        "device_name": "Xiaomi Redmi Note 13",
+        "device_brand": "Xiaomi",
+        "device_model": "23129RAA4G",
+        "device_type": "ANDROID",
+        "os_version": "Android 14",
+        "trust_score": 89,
+        "is_trusted": true,
+        "last_seen": "2026-06-27T08:14:10+03:00"
+      },
+      {
+        "device_id": "DVC-39512A601CDF",
+        "device_name": "Xiaomi Redmi Note 13",
+        "device_brand": "Xiaomi",
+        "device_model": "23129RAA4G",
+        "device_type": "ANDROID",
+        "os_version": "Android 14",
+        "trust_score": 99,
+        "is_trusted": true,
+        "last_seen": "2026-07-03T16:59:03+03:00"
+      }
+    ],
+    "recent_transactions": [
+      {
+        "transaction_id": "TU202608276628BE7B494859945I",
+        "transaction_date": "2026-08-27T13:23:24+03:00",
+        "channel": "BRANCH",
+        "transaction_type": "LOAN_REPAYMENT",
+        "amount": 71981.43,
+        "currency": "KES",
+        "location_city": "NAIROBI",
+        "status": "APPROVED"
+      },
+      {
+        "transaction_id": "TF2026082438486AEC350658410I",
+        "transaction_date": "2026-08-24T18:04:11+03:00",
+        "channel": "USSD",
+        "transaction_type": "AIRTIME",
+        "amount": 68117.02,
+        "currency": "KES",
+        "location_city": "NAIROBI",
+        "status": "APPROVED"
+      },
+      {
+        "transaction_id": "TP20260822CB5014BE954162478I",
+        "transaction_date": "2026-08-22T12:17:32+03:00",
+        "channel": "USSD",
+        "transaction_type": "BILL_PAYMENT",
+        "amount": 55853.98,
+        "currency": "KES",
+        "location_city": "NAIROBI",
+        "status": "APPROVED"
+      },
+      {
+        "transaction_id": "TB202608138938B6D3949444226I",
+        "transaction_date": "2026-08-13T07:52:00+03:00",
+        "channel": "BRANCH",
+        "transaction_type": "DEPOSIT",
+        "amount": 77223.2,
+        "currency": "KES",
+        "location_city": "NAIROBI",
+        "status": "APPROVED"
+      },
+      {
+        "transaction_id": "TN20260724DDE6FA84818323801I",
+        "transaction_date": "2026-07-24T18:59:51+03:00",
+        "channel": "USSD",
+        "transaction_type": "TRANSFER",
+        "amount": 62742.17,
+        "currency": "KES",
+        "location_city": "NAIROBI",
+        "status": "APPROVED"
+      },
+      {
+        "transaction_id": "TC202607162C0BC379705903664I",
+        "transaction_date": "2026-07-16T09:48:26+03:00",
+        "channel": "MOBILE_BANKING",
+        "transaction_type": "TRANSFER",
+        "amount": 65431.58,
+        "currency": "KES",
+        "location_city": "NAIROBI",
+        "status": "APPROVED"
+      },
+      {
+        "transaction_id": "TF202607115A343A6D089885359I",
+        "transaction_date": "2026-07-11T09:40:04+03:00",
+        "channel": "BRANCH",
+        "transaction_type": "DEPOSIT",
+        "amount": 83137.51,
+        "currency": "KES",
+        "location_city": "NAIROBI",
+        "status": "APPROVED"
+      },
+      {
+        "transaction_id": "TJ20260630D7F5FD65620743783I",
+        "transaction_date": "2026-06-30T18:10:52+03:00",
+        "channel": "MOBILE_BANKING",
+        "transaction_type": "MERCHANT_PAYMENT",
+        "amount": 73253.34,
+        "currency": "KES",
+        "location_city": "NAIROBI",
+        "status": "APPROVED"
+      },
+      {
+        "transaction_id": "TP20260625A886BF0E526140667I",
+        "transaction_date": "2026-06-25T00:58:08+03:00",
+        "channel": "MOBILE_BANKING",
+        "transaction_type": "BILL_PAYMENT",
+        "amount": 1520134.62,
+        "currency": "KES",
+        "location_city": "MOMBASA",
+        "status": "BLOCKED"
+      },
+      {
+        "transaction_id": "TH20260622654E557F478626774I",
+        "transaction_date": "2026-06-22T21:03:08+03:00",
+        "channel": "MOBILE_BANKING",
+        "transaction_type": "TRANSFER",
+        "amount": 63252.93,
+        "currency": "KES",
+        "location_city": "NAIROBI",
+        "status": "APPROVED"
+      }
+    ]
+  }
+}
