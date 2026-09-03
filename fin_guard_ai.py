@@ -3770,7 +3770,7 @@ def finca_list_alerts(current_user):
                 }
                 alert_list.append(alert_dict)
                 
-                # ✅ POPULATE IN-MEMORY DICTIONARY
+                #IN-MEMORY DICTIONARY
                 finca_alerts[alert.id] = alert_dict
             
             return jsonify({
@@ -3893,7 +3893,7 @@ def finca_create_case(current_user):
         notes = data.get('notes', [])
         timeline = data.get('timeline', [])
         
-        # ✅ Get username safely from User object
+        #username safely from User object
         username = current_user.username if hasattr(current_user, 'username') else 'System'
         
         # Create case data
@@ -3989,7 +3989,6 @@ def finca_update_case(current_user, case_id):
             'status': 'error',
             'message': str(e)
         }), 500
-
 
 @app.route('/v1/api/finca/case/<case_id>', methods=['DELETE'])
 @token_required
@@ -4129,9 +4128,6 @@ def finca_mark_alert_read(current_user, alert_id):
             alert_db = db.query(Alert).filter(Alert.id == alert_id).first()
             
             if alert_db:
-                # SQLite doesn't have a 'read' column, so we track it via status
-                # Or you can add a 'read' column to the Alert model
-                # For now, we'll just update status if it's NEW
                 if alert_db.status == 'NEW':
                     alert_db.status = 'READ'
                 
@@ -4320,7 +4316,6 @@ def finca_assign_alert(current_user, alert_id):
             'message': str(e)
         }), 500
 
-
 @app.route('/v1/api/finca/cases/<case_id>/assign', methods=['POST'])
 @token_required
 def finca_assign_case(current_user, case_id):
@@ -4335,7 +4330,7 @@ def finca_assign_case(current_user, case_id):
                 'message': 'Analyst name required'
             }), 400
         
-        # ✅ Get username safely
+        #username safely
         username = current_user.username if hasattr(current_user, 'username') else 'System'
         
         # Try SQLite first
@@ -4434,7 +4429,7 @@ def finca_add_note(current_user, case_id):
                 'message': 'Note required'
             }), 400
         
-        # ✅ Get username safely
+        #username safely
         username = current_user.username if hasattr(current_user, 'username') else 'System'
         
         # Try SQLite first
