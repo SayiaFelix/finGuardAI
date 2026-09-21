@@ -608,7 +608,7 @@ def real_time_risk_scoring(transaction, models, weights_map):
         'Transaction_Amount': transaction.get('Transaction_Amount', 0),
         'Risk_Score': risk_score,
         'Model_Agreement': f"{total_flags}/{total_models} models flagged as fraud",  # ← total_flags
-        'ML_Votes': f"{total_flags}/{total_models}",  # ← FIXED: now same as Model_Agreement
+        'ML_Votes': f"{total_flags}/{total_models}",  # now same as Model_Agreement
         'Rule_Engine': {
             'triggered': rule_flagged,
             'rules': rule_reasons,
