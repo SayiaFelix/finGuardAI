@@ -156,7 +156,40 @@ def convert_numpy_types(obj):
         return bool(obj)
     else:
         return obj
-  
+
+
+def normalize_transaction_response(tx):
+    """Ensure transaction payloads expose amount and customer name aliases expected by the frontend."""
+    if not isinstance(tx, dict):
+        return tx
+
+    normalized = dict(tx)
+    details = dict(normalized.get('transaction_details') or {})
+    amount = (
+        details.get('Transaction_Amount')
+        or details.get('transaction_amount')
+        or details.get('amount')
+        or 0
+    )
+    details['Transaction_Amount'] = amount
+    details['transaction_amount'] = amount
+    details['amount'] = amount
+    details['finca_transaction_amount'] = amount
+    normalized['transaction_details'] = details
+
+    customer = dict(normalized.get('customer_info') or {})
+    if customer.get('customer_name') is None and customer.get('Customer_Name') is not None:
+        customer['customer_name'] = customer['Customer_Name']
+    if customer.get('Customer_Name') is None and customer.get('customer_name') is not None:
+        customer['Customer_Name'] = customer['customer_name']
+    if customer.get('customer_id') is None and customer.get('Customer_ID') is not None:
+        customer['customer_id'] = customer['Customer_ID']
+    if customer.get('Customer_ID') is None and customer.get('customer_id') is not None:
+        customer['Customer_ID'] = customer['customer_id']
+    normalized['customer_info'] = customer
+    return normalized
+
+
 def get_nairobi_time():
     """Returns current time in Africa/Nairobi timezone"""
     nairobi_tz = pytz.timezone('Africa/Nairobi')
@@ -1434,6 +1467,11 @@ def transactions_endpoint(current_user):
                 db.close()
                 
                 if tx:
+                    status_info = {
+                        'current': tx.status or 'Open',
+                        'history': tx.status_history or []
+                    }
+
                     cleaned_transaction = {
                         'transaction_id': tx.id,
                         'timestamp': tx.timestamp.isoformat(),
@@ -1445,7 +1483,8 @@ def transactions_endpoint(current_user):
                         'explanations': tx.explanations,
                         'llm_status': tx.llm_status,
                         'feedback_effect': tx.feedback_effect,
-                        'status_info': tx.status
+                        'status': tx.status or 'Open',
+                        'status_info': status_info
                     }
                     
                     risk_category = cleaned_transaction.get('risk_category', 'Unknown')
@@ -1481,7 +1520,7 @@ def transactions_endpoint(current_user):
                         'status_info': cleaned_transaction.get('status_info', {})
                     }
                     
-                    final_response = convert_numpy_types(response_data)
+                    final_response = normalize_transaction_response(convert_numpy_types(response_data))
                     return jsonify(final_response), 200
                 else:
                     # Fallback to pickle
@@ -1552,7 +1591,11 @@ def transactions_endpoint(current_user):
                 
                 tx_list = []
                 for tx in transactions:
-                    tx_list.append({
+                    status_info = {
+                        'current': tx.status or 'Open',
+                        'history': tx.status_history or []
+                    }
+                    tx_payload = {
                         'transaction_id': tx.id,
                         'timestamp': tx.timestamp.isoformat(),
                         'risk_score': tx.risk_score,
@@ -1566,8 +1609,10 @@ def transactions_endpoint(current_user):
                         'threshold_used': tx.threshold_used,
                         'feedback_used': tx.feedback_used,
                         'feedback_effect': tx.feedback_effect,
-                        'status_info': tx.status
-                    })
+                        'status': tx.status or 'Open',
+                        'status_info': status_info
+                    }
+                    tx_list.append(normalize_transaction_response(tx_payload))
                 
                 response_data = {
                     'status': 'success',
@@ -1599,7 +1644,7 @@ def transactions_endpoint(current_user):
                 tx_list = []
                 for tx_id, tx_data in transactions.items():
                     cleaned_tx_data = convert_numpy_types(tx_data)
-                    tx_list.append({
+                    tx_payload = {
                         'transaction_id': tx_id,
                         'timestamp': cleaned_tx_data.get('timestamp', ''),
                         'risk_score': cleaned_tx_data.get('risk_score', 0),
@@ -1609,7 +1654,8 @@ def transactions_endpoint(current_user):
                         'recommended_action': cleaned_tx_data.get('recommended_action', ''),
                         'explanations': cleaned_tx_data.get('explanations', {}),
                         'llm_status': cleaned_tx_data.get('llm_status', 'disconnected')
-                    })
+                    }
+                    tx_list.append(normalize_transaction_response(tx_payload))
                 
                 tx_list.sort(key=lambda x: x['timestamp'], reverse=True)
                 total = len(tx_list)

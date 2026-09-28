@@ -52,8 +52,8 @@ def get_customers(current_user):
             search=request.args.get("search"),
             segment=request.args.get("segment"),
             risk_profile=request.args.get(
-                "risk_profile"
-            ),
+                "customer_profile"
+            ) or request.args.get("risk_profile"),
             status=request.args.get("status"),
         )
 

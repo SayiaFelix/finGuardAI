@@ -280,13 +280,54 @@ def get_db():
     finally:
         db.close()
 
+def normalize_transaction_payload_fields(payload):
+    """Normalize incoming payloads so the frontend sees stable field names across historical data."""
+    if not isinstance(payload, dict):
+        return payload
+
+    normalized = dict(payload)
+
+    amount_candidates = [
+        normalized.get('Transaction_Amount'),
+        normalized.get('transaction_amount'),
+        normalized.get('amount'),
+    ]
+    amount_value = next((value for value in amount_candidates if value is not None), 0)
+    if amount_value is not None:
+        normalized['Transaction_Amount'] = amount_value
+        normalized['transaction_amount'] = amount_value
+        normalized['amount'] = amount_value
+        normalized['finca_transaction_amount'] = amount_value
+
+    customer_name = normalized.get('customer_name')
+    customer_name_cap = normalized.get('Customer_Name')
+    if customer_name is None and customer_name_cap is not None:
+        normalized['customer_name'] = customer_name_cap
+    if customer_name_cap is None and customer_name is not None:
+        normalized['Customer_Name'] = customer_name
+
+    return normalized
+
+
 def save_transaction_to_db(transaction_data):
     db = SessionLocal()
     try:
-        transaction_details = convert_for_json(transaction_data.get('transaction_details', {}))
-        customer_info = convert_for_json(transaction_data.get('customer_info', {}))
+        transaction_details = normalize_transaction_payload_fields(
+            convert_for_json(transaction_data.get('transaction_details', {}))
+        )
+        customer_info = normalize_transaction_payload_fields(
+            convert_for_json(transaction_data.get('customer_info', {}))
+        )
         explanations = convert_for_json(transaction_data.get('explanations', {}))
-        
+
+        raw_status = transaction_data.get('status', {})
+        if isinstance(raw_status, dict):
+            status_value = raw_status.get('current', 'Open')
+            status_history = raw_status.get('history', [])
+        else:
+            status_value = str(raw_status or 'Open')
+            status_history = []
+
         timestamp_str = transaction_data.get('timestamp')
         if timestamp_str:
             try:
@@ -305,8 +346,8 @@ def save_transaction_to_db(transaction_data):
             transaction_details=transaction_details,
             customer_info=customer_info,
             explanations=explanations,
-            status=transaction_data.get('status', {}).get('current', 'Open'),
-            status_history=transaction_data.get('status', {}).get('history', []),
+            status=status_value,
+            status_history=status_history,
             feedback_used=transaction_data.get('feedback_used'),
             feedback_effect=transaction_data.get('feedback_effect'),
             model_version=transaction_data.get('model_version', 'v1.0.0'),
