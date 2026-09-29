@@ -17,3 +17,7 @@ venv/
 
 # Local database backup
 database/fraudsentinel_local_backup.db
+
+# sqlite backups
+/database/fraudsentinel.db.bak
+/database/fraudsentinel.db.bak2
