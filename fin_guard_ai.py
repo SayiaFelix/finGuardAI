@@ -4161,6 +4161,133 @@ def finca_list_cases(current_user):
             'message': str(e)
         }), 500
 
+
+# ---------------------------------------------------------------------------
+# Compatibility wrappers for frontend (paths expected by the Angular app)
+# These delegate to the existing handlers above to avoid duplicating logic.
+# ---------------------------------------------------------------------------
+
+
+@app.route('/v1/api/finca/cases/create', methods=['POST'])
+@token_required
+def finca_create_case_compat(current_user):
+    return finca_create_case(current_user)
+
+
+@app.route('/v1/api/finca/cases/list', methods=['POST'])
+@token_required
+def finca_list_cases_compat(current_user):
+    return finca_list_cases(current_user)
+
+
+@app.route('/v1/api/finca/cases/<case_id>', methods=['PUT'])
+@token_required
+def finca_update_case_compat(current_user, case_id):
+    return finca_update_case(current_user, case_id)
+
+
+@app.route('/v1/api/finca/cases/<case_id>', methods=['GET'])
+@token_required
+def finca_get_case_compat(current_user, case_id):
+    return finca_get_case(current_user, case_id)
+
+
+@app.route('/v1/api/finca/cases/assign/<case_id>', methods=['POST'])
+@token_required
+def finca_assign_case_compat(current_user, case_id):
+    return finca_assign_case(current_user, case_id)
+
+
+@app.route('/v1/api/finca/cases/notes/<case_id>', methods=['POST'])
+@token_required
+def finca_add_note_compat(current_user, case_id):
+    return finca_add_note(current_user, case_id)
+
+
+@app.route('/v1/api/finca/cases/resolve/<case_id>', methods=['POST'])
+@token_required
+def finca_resolve_case_compat(current_user, case_id):
+    return finca_resolve_case(current_user, case_id)
+
+
+@app.route('/v1/api/finca/cases/escalate/<case_id>', methods=['POST'])
+@token_required
+def finca_escalate_case(current_user, case_id):
+    """Escalate a case (frontend expects this endpoint)."""
+    try:
+        data = request.json or {}
+        level = data.get('level', 'ESCALATED')
+        reason = data.get('reason', '')
+        analyst = data.get('analyst', getattr(current_user, 'username', 'System'))
+
+        # Try SQLite first
+        try:
+            from database.db_manager import SessionLocal, Case
+            db = SessionLocal()
+            case_db = db.query(Case).filter(Case.id == case_id).first()
+
+            if case_db:
+                case_db.priority = level
+                timeline = case_db.timeline or []
+                timeline.append({
+                    'timestamp': get_nairobi_time(),
+                    'action': f'Escalated to {level}: {reason}',
+                    'actor': analyst
+                })
+                case_db.timeline = timeline
+                case_db.updated_at = datetime.utcnow()
+
+                db.commit()
+                db.refresh(case_db)
+                db.close()
+
+                case = {
+                    'id': case_db.id,
+                    'priority': case_db.priority,
+                    'timeline': case_db.timeline,
+                    'updated_at': case_db.updated_at.isoformat() if case_db.updated_at else None
+                }
+
+                if case_id in finca_cases:
+                    finca_cases[case_id]['priority'] = case_db.priority
+                    finca_cases[case_id]['timeline'] = case_db.timeline
+
+                return jsonify({
+                    'status': 'success',
+                    'message': f'Case escalated to {level}',
+                    'case': case
+                }), 200
+        except Exception as e:
+            logger.warning(f"SQLite escalate failed: {e}")
+
+        # Fallback to in-memory
+        if case_id in finca_cases:
+            case = finca_cases[case_id]
+            case['priority'] = level
+            case['timeline'].append({
+                'timestamp': get_nairobi_time(),
+                'action': f'Escalated to {level}: {reason}',
+                'actor': analyst
+            })
+
+            return jsonify({
+                'status': 'success',
+                'message': f'Case escalated to {level} (memory)',
+                'case': case
+            }), 200
+
+        return jsonify({
+            'status': 'error',
+            'message': 'Case not found'
+        }), 404
+
+    except Exception as e:
+        logger.error(f"Error escalating case: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
 @app.route('/v1/api/finca/alerts/<alert_id>/read', methods=['POST'])
 @token_required
 def finca_mark_alert_read(current_user, alert_id):
