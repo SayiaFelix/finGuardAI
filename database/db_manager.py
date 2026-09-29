@@ -1,18 +1,19 @@
 import json
 import os
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
 
 try:
     from sqlalchemy import (
         create_engine, Column, String, Float, DateTime, Integer, JSON, Boolean,
-        ForeignKey, func, desc  # ADD desc here
+        ForeignKey, func, desc, text  # ADD desc here
     )
     from sqlalchemy.ext.declarative import declarative_base
     from sqlalchemy.orm import relationship, sessionmaker
 except ImportError:  # pragma: no cover - handled by environment setup
     from sqlalchemy import (  # type: ignore
         create_engine, Column, String, Float, DateTime, Integer, JSON, Boolean,
-        ForeignKey, func, desc  # ADD desc here
+        ForeignKey, func, desc, text  # ADD desc here
     )
     from sqlalchemy.ext.declarative import declarative_base  # type: ignore
     from sqlalchemy.orm import relationship, sessionmaker  # type: ignore
@@ -43,6 +44,66 @@ def get_nairobi_time():
     """Returns current time in Africa/Nairobi timezone"""
     nairobi_tz = pytz.timezone('Africa/Nairobi')
     return datetime.now(nairobi_tz)
+
+TRANSACTION_CHANNEL_WEIGHTED_ORDER = [
+    'MOBILE_BANKING',
+    'INTERNET_BANKING',
+    'ATM_POS',
+    'CARD',
+    'CORE_BANKING',
+    'AGENCY',
+    'USSD',
+]
+
+TRANSACTION_CHANNEL_WEIGHTS = [40, 25, 15, 10, 5, 3, 2]
+
+
+def normalize_transaction_channel(value):
+    """Canonicalize legacy channel aliases to the agreed FINCA channel list."""
+    if value is None:
+        return 'MOBILE_BANKING'
+
+    normalized = str(value).strip().upper().replace(' ', '_')
+    aliases = {
+        'MOBILE': 'MOBILE_BANKING',
+        'MOBILE_APP': 'MOBILE_BANKING',
+        'MOBILE_BANKING_APP': 'MOBILE_BANKING',
+        'INTERNET': 'INTERNET_BANKING',
+        'ONLINE': 'INTERNET_BANKING',
+        'WEB_BANKING': 'INTERNET_BANKING',
+        'CORE': 'CORE_BANKING',
+        'BRANCH': 'CORE_BANKING',
+        'ATM': 'ATM_POS',
+        'POS': 'ATM_POS',
+        'ATMPOS': 'ATM_POS',
+        'CARD_PAYMENT': 'CARD',
+        'CARD_DEBIT': 'CARD',
+        'CARD_CREDIT': 'CARD',
+        'AGENT': 'AGENCY',
+        'AGENCY_BANKING': 'AGENCY',
+        'AGENT_BANKING': 'AGENCY',
+        'USSD_BANKING': 'USSD',
+    }
+    return aliases.get(normalized, normalized if normalized in set(TRANSACTION_CHANNEL_WEIGHTED_ORDER) else 'MOBILE_BANKING')
+
+
+def infer_transaction_direction(channel, transaction_type=None):
+    """Map channel + transaction type to movement direction for deposits vs withdrawals."""
+    channel_name = normalize_transaction_channel(channel)
+    tx_type = str(transaction_type or '').upper()
+
+    incoming_keywords = ('DEPOSIT', 'CREDIT', 'SALARY', 'LOAN_DISBURSEMENT', 'REFUND', 'INWARD', 'RECEIVE', 'CASH_IN')
+    outgoing_keywords = ('WITHDRAWAL', 'TRANSFER_OUT', 'SEND', 'DEBIT', 'BILL_PAY', 'PAYMENT', 'PURCHASE', 'CASH_OUT', 'ATM_WITHDRAWAL')
+
+    if any(keyword in tx_type for keyword in incoming_keywords):
+        return 'INCOMING'
+    if any(keyword in tx_type for keyword in outgoing_keywords):
+        return 'OUTGOING'
+
+    if channel_name in {'ATM_POS', 'AGENCY', 'CARD', 'USSD'}:
+        return 'OUTGOING'
+    return 'INCOMING'
+
 
 class User(Base):
     """User accounts for authentication"""
@@ -140,6 +201,8 @@ class Transaction(Base):
     risk_score = Column(Float)
     risk_category = Column(String)
     recommended_action = Column(String)
+    channel = Column(String, default='MOBILE_BANKING')
+    direction = Column(String, default='OUTGOING')
     
     # JSON fields 
     transaction_details = Column(JSON)
@@ -159,6 +222,7 @@ class Transaction(Base):
     threshold_used = Column(Float)
     national_alert_mode = Column(Boolean, default=False)
     llm_status = Column(String, default='disconnected')
+    customer_id = Column(String, nullable=True)
 
 class Rule(Base):
     """Fraud Detection Rules - matches your rules_storage structure"""
@@ -266,12 +330,6 @@ class Case(Base):
     created_at = Column(DateTime, default=get_nairobi_time)
     updated_at = Column(DateTime, default=get_nairobi_time, onupdate=get_nairobi_time)
     
-def init_database():
-    """Create all tables"""
-    Base.metadata.create_all(engine)
-    print(" SQLite database created successfully! (fraudsentinel.db)")
-    create_admin_user()
-
 def get_db():
     """Get database session"""
     db = SessionLocal()
@@ -299,6 +357,18 @@ def normalize_transaction_payload_fields(payload):
         normalized['amount'] = amount_value
         normalized['finca_transaction_amount'] = amount_value
 
+    channel_value = normalized.get('channel') or normalized.get('Channel') or normalized.get('channel_name')
+    if channel_value:
+        normalized['channel'] = normalize_transaction_channel(channel_value)
+        normalized['Channel'] = normalize_transaction_channel(channel_value)
+
+    direction_value = normalized.get('direction') or normalized.get('Direction')
+    if direction_value is None and normalized.get('transaction_type'):
+        direction_value = infer_transaction_direction(normalized.get('channel') or normalized.get('Channel'), normalized.get('transaction_type'))
+    if direction_value:
+        normalized['direction'] = direction_value.upper()
+        normalized['Direction'] = direction_value.upper()
+
     customer_name = normalized.get('customer_name')
     customer_name_cap = normalized.get('Customer_Name')
     if customer_name is None and customer_name_cap is not None:
@@ -307,6 +377,30 @@ def normalize_transaction_payload_fields(payload):
         normalized['Customer_Name'] = customer_name
 
     return normalized
+
+
+def ensure_transaction_channel_schema():
+    """Add the channel and direction columns for legacy SQLite databases without dropping relations."""
+    db = SessionLocal()
+    try:
+        columns = [row[1] for row in db.execute(text('PRAGMA table_info(transactions)')).fetchall()]
+        if 'channel' not in columns:
+            db.execute(text("ALTER TABLE transactions ADD COLUMN channel VARCHAR DEFAULT 'MOBILE_BANKING'"))
+        if 'direction' not in columns:
+            db.execute(text("ALTER TABLE transactions ADD COLUMN direction VARCHAR DEFAULT 'OUTGOING'"))
+
+        db.execute(text("UPDATE transactions SET channel = COALESCE(channel, json_extract(transaction_details, '$.channel'), 'MOBILE_BANKING') WHERE channel IS NULL OR TRIM(channel) = ''"))
+        db.execute(text("UPDATE transactions SET channel = :value WHERE channel IS NULL OR TRIM(channel) = ''"), {'value': 'MOBILE_BANKING'})
+        db.execute(text("UPDATE transactions SET channel = :normalized WHERE channel IN ('MOBILE', 'MOBILE_APP', 'MOBILE_BANKING_APP', 'INTERNET', 'ONLINE', 'WEB_BANKING', 'CORE', 'BRANCH', 'ATM', 'POS', 'ATMPOS', 'CARD_PAYMENT', 'CARD_DEBIT', 'CARD_CREDIT', 'AGENT', 'AGENCY_BANKING', 'AGENT_BANKING', 'USSD_BANKING')"), {'normalized': 'MOBILE_BANKING'})
+        db.execute(text("UPDATE transactions SET channel = CASE UPPER(COALESCE(channel, '')) WHEN 'MOBILE' THEN 'MOBILE_BANKING' WHEN 'MOBILE_APP' THEN 'MOBILE_BANKING' WHEN 'MOBILE_BANKING_APP' THEN 'MOBILE_BANKING' WHEN 'INTERNET' THEN 'INTERNET_BANKING' WHEN 'ONLINE' THEN 'INTERNET_BANKING' WHEN 'WEB_BANKING' THEN 'INTERNET_BANKING' WHEN 'CORE' THEN 'CORE_BANKING' WHEN 'BRANCH' THEN 'CORE_BANKING' WHEN 'ATM' THEN 'ATM_POS' WHEN 'POS' THEN 'ATM_POS' WHEN 'ATMPOS' THEN 'ATM_POS' WHEN 'CARD_PAYMENT' THEN 'CARD' WHEN 'CARD_DEBIT' THEN 'CARD' WHEN 'CARD_CREDIT' THEN 'CARD' WHEN 'AGENT' THEN 'AGENCY' WHEN 'AGENCY_BANKING' THEN 'AGENCY' WHEN 'AGENT_BANKING' THEN 'AGENCY' WHEN 'USSD_BANKING' THEN 'USSD' ELSE channel END WHERE channel IS NOT NULL"))
+
+        db.execute(text("UPDATE transactions SET direction = COALESCE(direction, json_extract(transaction_details, '$.direction'), CASE WHEN UPPER(COALESCE(json_extract(transaction_details, '$.transaction_type'), '')) LIKE '%DEPOSIT%' OR UPPER(COALESCE(json_extract(transaction_details, '$.transaction_type'), '')) LIKE '%CREDIT%' OR UPPER(COALESCE(json_extract(transaction_details, '$.transaction_type'), '')) LIKE '%SALARY%' OR UPPER(COALESCE(json_extract(transaction_details, '$.transaction_type'), '')) LIKE '%INWARD%' THEN 'INCOMING' WHEN UPPER(COALESCE(json_extract(transaction_details, '$.transaction_type'), '')) LIKE '%WITHDRAWAL%' OR UPPER(COALESCE(json_extract(transaction_details, '$.transaction_type'), '')) LIKE '%TRANSFER_OUT%' OR UPPER(COALESCE(json_extract(transaction_details, '$.transaction_type'), '')) LIKE '%DEBIT%' OR UPPER(COALESCE(json_extract(transaction_details, '$.transaction_type'), '')) LIKE '%PAYMENT%' OR UPPER(COALESCE(json_extract(transaction_details, '$.transaction_type'), '')) LIKE '%PURCHASE%' THEN 'OUTGOING' WHEN channel IN ('ATM_POS', 'AGENCY', 'CARD', 'USSD') THEN 'OUTGOING' ELSE 'INCOMING' END) WHERE direction IS NULL OR TRIM(direction) = ''"))
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        print(f"Schema ensure warning: {exc}")
+    finally:
+        db.close()
 
 
 def save_transaction_to_db(transaction_data):
@@ -337,12 +431,27 @@ def save_transaction_to_db(transaction_data):
         else:
             timestamp = get_nairobi_time()
         
+        resolved_customer_id = None
+        if isinstance(customer_info, dict):
+            resolved_customer_id = customer_info.get('customer_id')
+
+        channel_name = normalize_transaction_channel(
+            transaction_data.get('channel')
+            or transaction_details.get('channel')
+            or transaction_details.get('Channel')
+            or 'MOBILE_BANKING'
+        )
+        tx_type = transaction_details.get('transaction_type') or transaction_data.get('transaction_type') or 'TRANSFER'
+        direction_value = (transaction_data.get('direction') or transaction_details.get('direction') or infer_transaction_direction(channel_name, tx_type)).upper()
+
         db_transaction = Transaction(
             id=transaction_data.get('transaction_id'),
             timestamp=timestamp,
             risk_score=float(transaction_data.get('risk_score', 0)),
             risk_category=transaction_data.get('risk_category', 'Unknown'),
             recommended_action=transaction_data.get('recommended_action', ''),
+            channel=channel_name,
+            direction=direction_value,
             transaction_details=transaction_details,
             customer_info=customer_info,
             explanations=explanations,
@@ -353,7 +462,8 @@ def save_transaction_to_db(transaction_data):
             model_version=transaction_data.get('model_version', 'v1.0.0'),
             threshold_used=float(transaction_data.get('threshold_used', 6.0)),
             national_alert_mode=transaction_data.get('national_alert_mode', False),
-            llm_status=transaction_data.get('llm_status', 'disconnected')
+            llm_status=transaction_data.get('llm_status', 'disconnected'),
+            customer_id=resolved_customer_id,
         )
         
         # Upsert
@@ -1224,15 +1334,410 @@ def init_default_rules():
         print(f"✅ Initialized {len(default_rules)} default rules")
     else:
         print(f"✅ Rules already exist: {len(rules)} rules found")
- 
+
+
+def _is_synthetic_identifier(value):
+    if not value:
+        return False
+    upper = str(value).upper()
+    return any(token in upper for token in ('TEST', 'DEMO', 'TXN202', 'ALT202', 'CASE202', 'TU202', 'TA202'))
+
+
+def database_needs_normalization():
+    """Detect legacy synthetic IDs or broken demo PII in the test database."""
+    db = SessionLocal()
+    try:
+        checks = [
+            "SELECT COUNT(*) FROM transactions WHERE id LIKE 'TEST-%' OR id LIKE 'TU202%' OR id LIKE 'TA202%'",
+            "SELECT COUNT(*) FROM alerts WHERE id LIKE 'TEST-%' OR id LIKE 'ALT202%'",
+            "SELECT COUNT(*) FROM cases WHERE id LIKE 'TEST-%' OR id LIKE 'CASE202%'",
+            "SELECT COUNT(*) FROM customers WHERE email LIKE '%demo.example%' OR national_id LIKE 'DEMO-%'",
+        ]
+        for query in checks:
+            if db.execute(text(query)).scalar():
+                return True
+        return False
+    finally:
+        db.close()
+
+
+def _risk_tier(score):
+    if score >= 76:
+        return 'CRITICAL'
+    if score >= 56:
+        return 'HIGH'
+    if score >= 32:
+        return 'MEDIUM'
+    return 'LOW'
+
+
+def _recommended_action(risk_tier):
+    return {
+        'LOW': 'APPROVE',
+        'MEDIUM': 'MONITOR',
+        'HIGH': 'CHALLENGE',
+        'CRITICAL': 'BLOCK',
+    }[risk_tier]
+
+
+def _customer_transaction_count_plan(customer_ids):
+    """
+    Most customers get 3 transactions, some 2, some 1, very few 4.
+    Returns {customer_id: transaction_count}.
+    """
+    ids = list(customer_ids)
+    random.shuffle(ids)
+    total = len(ids)
+    four_count = max(1, int(total * 0.03))
+    one_count = max(1, int(total * 0.12))
+    two_count = max(1, int(total * 0.20))
+    three_count = total - four_count - one_count - two_count
+
+    plan = {}
+    cursor = 0
+    for customer_id in ids[cursor:cursor + four_count]:
+        plan[customer_id] = 4
+    cursor += four_count
+    for customer_id in ids[cursor:cursor + one_count]:
+        plan[customer_id] = 1
+    cursor += one_count
+    for customer_id in ids[cursor:cursor + two_count]:
+        plan[customer_id] = 2
+    cursor += two_count
+    for customer_id in ids[cursor:]:
+        plan[customer_id] = 3
+    return plan
+
+
+def _build_risk_plan(total):
+    low_count = int(total * 0.77)
+    medium_count = int(total * 0.20)
+    high_count = max(1, int(total * 0.02))
+    critical_count = max(1, total - low_count - medium_count - high_count)
+    risk_plan = (
+        [('LOW', random.uniform(4, 28)) for _ in range(low_count)]
+        + [('MEDIUM', random.uniform(32, 52)) for _ in range(medium_count)]
+        + [('HIGH', random.uniform(58, 72)) for _ in range(high_count)]
+        + [('CRITICAL', random.uniform(78, 94)) for _ in range(critical_count)]
+    )
+    random.shuffle(risk_plan)
+    return risk_plan
+
+
+def _refresh_customer_pii(db, customers, customer_map):
+    email_domains = ['gmail.com', 'yahoo.com', 'outlook.com', 'icloud.com', 'hotmail.com']
+    for row in customers:
+        customer_num = int(str(row['customer_id']).split('-')[1])
+        first = str(row['first_name']).strip().lower()
+        last = str(row['last_name']).strip().lower()
+        email = f"{first}.{last}{customer_num}@{email_domains[customer_num % len(email_domains)]}"
+        national_id = f"{25000000 + customer_num}"
+        db.execute(
+            text(
+                "UPDATE customers SET email = :email, national_id = :national_id "
+                "WHERE customer_id = :customer_id"
+            ),
+            {
+                'email': email,
+                'national_id': national_id,
+                'customer_id': row['customer_id'],
+            },
+        )
+        customer_map[row['customer_id']]['email'] = email
+        customer_map[row['customer_id']]['national_id'] = national_id
+
+
+def _make_transaction_payload(customer, risk_tier, risk_score, txn_index, slot):
+    """Build one transaction row tied to an existing customer."""
+    customer_id = customer['customer_id']
+    base_time = get_nairobi_time() - timedelta(days=random.randint(1, 120))
+    timestamp = base_time - timedelta(hours=slot * 6, minutes=random.randint(0, 59))
+
+    segment = customer.get('customer_segment') or 'RETAIL'
+    if segment in ('LOAN', 'SME'):
+        amount = round(random.uniform(5000, 180000), 2)
+    elif segment == 'PREMIUM':
+        amount = round(random.uniform(10000, 350000), 2)
+    else:
+        amount = round(random.uniform(500, 85000), 2)
+
+    channel = random.choices(
+        TRANSACTION_CHANNEL_WEIGHTED_ORDER,
+        weights=TRANSACTION_CHANNEL_WEIGHTS,
+        k=1,
+    )[0]
+    transaction_type = random.choice(['TRANSFER', 'WITHDRAWAL', 'DEPOSIT', 'BILL_PAY', 'CASH_OUT', 'CASH_IN'])
+    direction = infer_transaction_direction(channel, transaction_type)
+    customer_info = {
+        'customer_id': customer_id,
+        'customer_name': customer['full_name'],
+        'customer_email': customer['email'],
+        'customer_phone': customer['phone_number'],
+        'account_age_days': random.randint(120, 2400),
+        'avg_transaction_amount': round(amount * random.uniform(0.6, 1.4), 2),
+        'home_city': customer['home_city'],
+        'customer_segment': segment,
+    }
+    transaction_details = {
+        'Transaction_Amount': amount,
+        'transaction_amount': amount,
+        'amount': amount,
+        'Customer_Name': customer['full_name'],
+        'customer_name': customer['full_name'],
+        'channel': channel,
+        'direction': direction,
+        'location_city': customer['home_city'],
+        'transaction_type': transaction_type,
+        'currency': customer.get('currency') or 'KES',
+    }
+    return {
+        'new_id': f"TXN-{txn_index:05d}",
+        'timestamp': timestamp.isoformat(sep=' ', timespec='seconds'),
+        'risk_score': round(float(risk_score), 2),
+        'risk_category': risk_tier,
+        'recommended_action': _recommended_action(risk_tier),
+        'transaction_details': json.dumps(transaction_details),
+        'customer_info': json.dumps(customer_info),
+        'explanations': json.dumps({'summary': f'{risk_tier} risk transaction for {customer_id}'}),
+        'status': 'Blocked' if risk_tier == 'CRITICAL' else ('Investigating' if risk_tier == 'HIGH' else 'Open'),
+        'status_history': json.dumps([]),
+        'feedback_used': None,
+        'feedback_effect': None,
+        'model_version': 'v1.0.0',
+        'threshold_used': 6.0,
+        'national_alert_mode': 0,
+        'llm_status': 'disconnected',
+        'customer_id': customer_id,
+        'channel': channel,
+        'direction': direction,
+    }
+
+
+def _persist_fraudsentinel_core(db, normalized_transactions, customer_map):
+    db.execute(text("DELETE FROM cases"))
+    db.execute(text("DELETE FROM alerts"))
+    db.execute(text("DELETE FROM transactions"))
+    db.commit()
+
+    for tx in normalized_transactions:
+        db.execute(
+            text(
+                "INSERT INTO transactions ("
+                "id, timestamp, risk_score, risk_category, recommended_action, channel, direction, "
+                "transaction_details, customer_info, explanations, status, status_history, "
+                "feedback_used, feedback_effect, model_version, threshold_used, "
+                "national_alert_mode, llm_status, customer_id"
+                ") VALUES ("
+                ":id, :timestamp, :risk_score, :risk_category, :recommended_action, :channel, :direction, "
+                ":transaction_details, :customer_info, :explanations, :status, :status_history, "
+                ":feedback_used, :feedback_effect, :model_version, :threshold_used, "
+                ":national_alert_mode, :llm_status, :customer_id"
+                ")"
+            ),
+            {
+                'id': tx['new_id'],
+                'timestamp': tx['timestamp'],
+                'risk_score': tx['risk_score'],
+                'risk_category': tx['risk_category'],
+                'recommended_action': tx['recommended_action'],
+                'channel': normalize_transaction_channel(tx.get('channel') or 'MOBILE_BANKING'),
+                'direction': (tx.get('direction') or 'OUTGOING').upper(),
+                'transaction_details': tx['transaction_details'],
+                'customer_info': tx['customer_info'],
+                'explanations': tx['explanations'],
+                'status': tx['status'],
+                'status_history': tx['status_history'],
+                'feedback_used': tx['feedback_used'],
+                'feedback_effect': tx['feedback_effect'],
+                'model_version': tx['model_version'],
+                'threshold_used': tx['threshold_used'],
+                'national_alert_mode': tx['national_alert_mode'],
+                'llm_status': tx['llm_status'],
+                'customer_id': tx['customer_id'],
+            },
+        )
+
+    alert_rows = [tx for tx in normalized_transactions if tx['risk_category'] in ('HIGH', 'CRITICAL')]
+    alert_id_by_txn = {}
+    for alert_index, tx in enumerate(alert_rows, start=1):
+        alert_id = f"ALT-{alert_index:05d}"
+        alert_id_by_txn[tx['new_id']] = alert_id
+        db.execute(
+            text(
+                "INSERT INTO alerts ("
+                "id, transaction_id, customer_id, risk_score, ml_risk_level, final_risk_level, "
+                "rule_risk_level, triggered_rules, reasons, decision, status, created_at"
+                ") VALUES ("
+                ":id, :transaction_id, :customer_id, :risk_score, :ml_risk_level, :final_risk_level, "
+                ":rule_risk_level, :triggered_rules, :reasons, :decision, :status, :created_at"
+                ")"
+            ),
+            {
+                'id': alert_id,
+                'transaction_id': tx['new_id'],
+                'customer_id': tx['customer_id'],
+                'risk_score': tx['risk_score'],
+                'ml_risk_level': tx['risk_category'],
+                'final_risk_level': tx['risk_category'],
+                'rule_risk_level': tx['risk_category'],
+                'triggered_rules': json.dumps([]),
+                'reasons': json.dumps([
+                    f"Risk score {tx['risk_score']:.1f} exceeded monitoring threshold",
+                ]),
+                'decision': tx['recommended_action'],
+                'status': 'NEW',
+                'created_at': tx['timestamp'],
+            },
+        )
+
+    case_rows = [tx for tx in normalized_transactions if tx['risk_category'] == 'CRITICAL']
+    for case_index, tx in enumerate(case_rows, start=1):
+        case_id = f"CASE-{case_index:05d}"
+        db.execute(
+            text(
+                "INSERT INTO cases ("
+                "id, alert_id, customer_id, risk_score, ml_risk_level, final_risk_level, "
+                "status, priority, assigned_to, notes, timeline, resolution, created_at, updated_at"
+                ") VALUES ("
+                ":id, :alert_id, :customer_id, :risk_score, :ml_risk_level, :final_risk_level, "
+                ":status, :priority, :assigned_to, :notes, :timeline, :resolution, :created_at, :updated_at"
+                ")"
+            ),
+            {
+                'id': case_id,
+                'alert_id': alert_id_by_txn.get(tx['new_id']),
+                'customer_id': tx['customer_id'],
+                'risk_score': tx['risk_score'],
+                'ml_risk_level': tx['risk_category'],
+                'final_risk_level': tx['risk_category'],
+                'status': 'OPEN',
+                'priority': 'HIGH' if tx['risk_score'] >= 85 else 'NORMAL',
+                'assigned_to': None,
+                'notes': json.dumps([]),
+                'timeline': json.dumps([
+                    {
+                        'timestamp': tx['timestamp'],
+                        'action': 'Case opened from critical alert',
+                        'actor': 'System',
+                    }
+                ]),
+                'resolution': None,
+                'created_at': tx['timestamp'],
+                'updated_at': tx['timestamp'],
+            },
+        )
+
+    customer_max_risk = {}
+    for tx in normalized_transactions:
+        customer_max_risk[tx['customer_id']] = max(
+            customer_max_risk.get(tx['customer_id'], 0),
+            tx['risk_score'],
+        )
+
+    for customer_id in customer_map:
+        max_score = customer_max_risk.get(customer_id, 0)
+        if max_score >= 76:
+            profile = 'HIGH'
+        elif max_score >= 56:
+            profile = 'MEDIUM'
+        else:
+            profile = 'LOW'
+        db.execute(
+            text("UPDATE customers SET risk_profile = :risk_profile WHERE customer_id = :customer_id"),
+            {'risk_profile': profile, 'customer_id': customer_id},
+        )
+
+    db.execute(text("CREATE INDEX IF NOT EXISTS idx_transactions_customer_id ON transactions(customer_id)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS idx_alerts_customer_id ON alerts(customer_id)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS idx_cases_customer_id ON cases(customer_id)"))
+
+
+def rebuild_fraudsentinel_dataset():
+    """
+    Rebuild transactions, alerts, and cases from the customers master table.
+    Every transaction, alert, and case is traceable to a real customer in the DB.
+    """
+    db = SessionLocal()
+    random.seed(42)
+
+    try:
+        db.execute(text("PRAGMA foreign_keys = OFF"))
+        db.execute(text("DELETE FROM cases WHERE id LIKE 'TEST-%' OR id LIKE 'CASE202%'"))
+        db.execute(text("DELETE FROM alerts WHERE id LIKE 'TEST-%' OR id LIKE 'ALT202%' OR transaction_id LIKE 'TEST-%'"))
+        db.execute(text("DELETE FROM transactions WHERE id LIKE 'TEST-%'"))
+        db.execute(text("DELETE FROM feedbacks WHERE transaction_id LIKE 'TEST-%'"))
+        db.commit()
+
+        customers = db.execute(text(
+            "SELECT customer_id, first_name, last_name, full_name, email, phone_number, "
+            "national_id, customer_segment, risk_profile, account_status, branch_code, home_city, currency "
+            "FROM customers ORDER BY customer_id"
+        )).mappings().all()
+
+        if not customers:
+            print("❌ Dataset rebuild skipped: customers table is empty")
+            return False
+
+        customer_map = {row['customer_id']: dict(row) for row in customers}
+        _refresh_customer_pii(db, customers, customer_map)
+
+        count_plan = _customer_transaction_count_plan(list(customer_map.keys()))
+        total_transactions = sum(count_plan.values())
+        risk_plan = _build_risk_plan(total_transactions)
+
+        normalized_transactions = []
+        txn_index = 1
+        for customer_id in sorted(count_plan.keys()):
+            customer = customer_map[customer_id]
+            for slot in range(count_plan[customer_id]):
+                risk_tier, risk_score = risk_plan[txn_index - 1]
+                normalized_transactions.append(
+                    _make_transaction_payload(customer, risk_tier, risk_score, txn_index, slot)
+                )
+                txn_index += 1
+
+        _persist_fraudsentinel_core(db, normalized_transactions, customer_map)
+
+        db.execute(text("PRAGMA foreign_keys = ON"))
+        db.commit()
+
+        tx_count = db.execute(text("SELECT COUNT(*) FROM transactions")).scalar()
+        alert_count = db.execute(text("SELECT COUNT(*) FROM alerts")).scalar()
+        case_count = db.execute(text("SELECT COUNT(*) FROM cases")).scalar()
+        cust_with_tx = db.execute(text("SELECT COUNT(DISTINCT customer_id) FROM transactions")).scalar()
+        print(
+            f"✅ Dataset rebuilt: {tx_count} transactions across {cust_with_tx} customers, "
+            f"{alert_count} alerts, {case_count} cases"
+        )
+        return True
+
+    except Exception as exc:
+        db.rollback()
+        print(f"❌ Dataset rebuild failed: {exc}")
+        import traceback
+        traceback.print_exc()
+        return False
+    finally:
+        db.close()
+
+
+def normalize_fraudsentinel_data():
+    """Clean legacy synthetic rows and rebuild a consistent relational dataset."""
+    return rebuild_fraudsentinel_dataset()
+
+
 def init_database():
     """Create all tables and initialize default data"""
     Base.metadata.create_all(engine)
+    ensure_transaction_channel_schema()
     print("✅ SQLite database created successfully! (fraudsentinel.db)")
     create_admin_user()
     
     # Initialize default rules
     init_default_rules()
+
+    if database_needs_normalization():
+        normalize_fraudsentinel_data()
                  
 def convert_for_json(obj):
     """Convert any numpy/pandas types to Python native types for JSON storage"""

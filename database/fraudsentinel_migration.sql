@@ -5,6 +5,9 @@
 PRAGMA foreign_keys = OFF;
 BEGIN TRANSACTION;
 
+ALTER TABLE transactions ADD COLUMN channel VARCHAR DEFAULT 'MOBILE_BANKING';
+ALTER TABLE transactions ADD COLUMN direction VARCHAR DEFAULT 'OUTGOING';
+
 -- Create customers table if missing
 CREATE TABLE IF NOT EXISTS customers (
     customer_id TEXT PRIMARY KEY,

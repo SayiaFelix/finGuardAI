@@ -11,7 +11,7 @@ import random
 import string
 import hashlib
 import ipaddress
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import Counter
 
 import concurrent.futures
@@ -175,6 +175,12 @@ def normalize_transaction_response(tx):
     details['transaction_amount'] = amount
     details['amount'] = amount
     details['finca_transaction_amount'] = amount
+    channel_value = normalized.get('channel') or details.get('channel') or 'MOBILE_BANKING'
+    direction_value = normalized.get('direction') or details.get('direction') or 'OUTGOING'
+    details['channel'] = channel_value
+    details['direction'] = direction_value.upper()
+    normalized['channel'] = channel_value
+    normalized['direction'] = direction_value.upper()
     normalized['transaction_details'] = details
 
     customer = dict(normalized.get('customer_info') or {})
@@ -1477,6 +1483,8 @@ def transactions_endpoint(current_user):
                         'timestamp': tx.timestamp.isoformat(),
                         'risk_score': tx.risk_score,
                         'risk_category': tx.risk_category,
+                        'channel': getattr(tx, 'channel', None) or 'MOBILE_BANKING',
+                        'direction': getattr(tx, 'direction', None) or 'OUTGOING',
                         'transaction_details': tx.transaction_details,
                         'customer_info': tx.customer_info,
                         'recommended_action': tx.recommended_action,
@@ -1600,6 +1608,8 @@ def transactions_endpoint(current_user):
                         'timestamp': tx.timestamp.isoformat(),
                         'risk_score': tx.risk_score,
                         'risk_category': tx.risk_category,
+                        'channel': getattr(tx, 'channel', None) or 'MOBILE_BANKING',
+                        'direction': getattr(tx, 'direction', None) or 'OUTGOING',
                         'transaction_details': tx.transaction_details,
                         'customer_info': tx.customer_info,
                         'recommended_action': tx.recommended_action,
@@ -4169,45 +4179,33 @@ def finca_list_cases(current_user):
 
 
 @app.route('/v1/api/finca/cases/create', methods=['POST'])
-@token_required
-def finca_create_case_compat(current_user):
-    return finca_create_case(current_user)
+def finca_create_case_compat():
+    return finca_create_case()
 
 
 @app.route('/v1/api/finca/cases/list', methods=['POST'])
-@token_required
-def finca_list_cases_compat(current_user):
-    return finca_list_cases(current_user)
+def finca_list_cases_compat():
+    return finca_list_cases()
 
 
 @app.route('/v1/api/finca/cases/<case_id>', methods=['PUT'])
-@token_required
-def finca_update_case_compat(current_user, case_id):
-    return finca_update_case(current_user, case_id)
-
-
-@app.route('/v1/api/finca/cases/<case_id>', methods=['GET'])
-@token_required
-def finca_get_case_compat(current_user, case_id):
-    return finca_get_case(current_user, case_id)
+def finca_update_case_compat(case_id):
+    return finca_update_case(case_id)
 
 
 @app.route('/v1/api/finca/cases/assign/<case_id>', methods=['POST'])
-@token_required
-def finca_assign_case_compat(current_user, case_id):
-    return finca_assign_case(current_user, case_id)
+def finca_assign_case_compat(case_id):
+    return finca_assign_case(case_id)
 
 
 @app.route('/v1/api/finca/cases/notes/<case_id>', methods=['POST'])
-@token_required
-def finca_add_note_compat(current_user, case_id):
-    return finca_add_note(current_user, case_id)
+def finca_add_note_compat(case_id):
+    return finca_add_note(case_id)
 
 
 @app.route('/v1/api/finca/cases/resolve/<case_id>', methods=['POST'])
-@token_required
-def finca_resolve_case_compat(current_user, case_id):
-    return finca_resolve_case(current_user, case_id)
+def finca_resolve_case_compat(case_id):
+    return finca_resolve_case(case_id)
 
 
 @app.route('/v1/api/finca/cases/escalate/<case_id>', methods=['POST'])
@@ -4492,6 +4490,300 @@ def finca_assign_alert(current_user, alert_id):
             'status': 'error',
             'message': str(e)
         }), 500
+
+
+@app.route('/v1/api/finca/alerts/mark_read', methods=['POST'])
+@token_required
+def finca_mark_alerts_read_bulk(current_user):
+    """Mark multiple alerts as read"""
+    try:
+        data = request.json or {}
+        alert_ids = data.get('alert_ids', [])
+        if not isinstance(alert_ids, list) or not alert_ids:
+            return jsonify({'status': 'error', 'message': 'alert_ids required'}), 400
+
+        updated = 0
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            for aid in alert_ids:
+                alert_db = db.query(Alert).filter(Alert.id == aid).first()
+                if alert_db:
+                    if alert_db.status == 'NEW':
+                        alert_db.status = 'READ'
+                    # mark read flag for frontend convenience
+                    # No dedicated column; handled in response
+                    updated += 1
+            db.commit()
+            db.close()
+        except Exception as e:
+            logger.warning(f"SQLite bulk mark read failed: {e}")
+            for aid in alert_ids:
+                if aid in finca_alerts:
+                    finca_alerts[aid]['read'] = True
+                    if finca_alerts[aid].get('status') == 'NEW':
+                        finca_alerts[aid]['status'] = 'READ'
+                    updated += 1
+
+        return jsonify({'status': 'success', 'updated': updated}), 200
+    except Exception as e:
+        logger.error(f"Error bulk marking alerts read: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/v1/api/finca/alerts/dismiss', methods=['POST'])
+@token_required
+def finca_dismiss_alerts_bulk(current_user):
+    """Bulk dismiss alerts (set status to DISMISSED)"""
+    try:
+        data = request.json or {}
+        alert_ids = data.get('alert_ids', [])
+        reason = data.get('reason', 'Dismissed by analyst')
+        if not isinstance(alert_ids, list) or not alert_ids:
+            return jsonify({'status': 'error', 'message': 'alert_ids required'}), 400
+
+        updated = 0
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            for aid in alert_ids:
+                alert_db = db.query(Alert).filter(Alert.id == aid).first()
+                if alert_db:
+                    alert_db.status = 'DISMISSED'
+                    alert_db.resolution_notes = reason
+                    updated += 1
+            db.commit()
+            db.close()
+        except Exception as e:
+            logger.warning(f"SQLite bulk dismiss failed: {e}")
+            for aid in alert_ids:
+                if aid in finca_alerts:
+                    finca_alerts[aid]['status'] = 'DISMISSED'
+                    finca_alerts[aid]['resolution_notes'] = reason
+                    updated += 1
+
+        return jsonify({'status': 'success', 'updated': updated}), 200
+    except Exception as e:
+        logger.error(f"Error bulk dismissing alerts: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/v1/api/finca/alerts/<alert_id>/dismiss', methods=['POST'])
+@token_required
+def finca_dismiss_alert(current_user, alert_id):
+    try:
+        data = request.json or {}
+        reason = data.get('reason', 'Dismissed by analyst')
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            alert_db = db.query(Alert).filter(Alert.id == alert_id).first()
+            if alert_db:
+                alert_db.status = 'DISMISSED'
+                alert_db.resolution_notes = reason
+                db.commit()
+                db.refresh(alert_db)
+                db.close()
+
+                # Update in-memory
+                finca_alerts[alert_id] = {
+                    'id': alert_db.id,
+                    'status': alert_db.status,
+                    'resolution_notes': alert_db.resolution_notes
+                }
+
+                return jsonify({'status': 'success', 'message': 'Alert dismissed', 'alert': finca_alerts[alert_id]}), 200
+        except Exception as e:
+            logger.warning(f"SQLite dismiss failed: {e}")
+
+        if alert_id in finca_alerts:
+            finca_alerts[alert_id]['status'] = 'DISMISSED'
+            finca_alerts[alert_id]['resolution_notes'] = reason
+            return jsonify({'status': 'success', 'message': 'Alert dismissed (memory)', 'alert': finca_alerts[alert_id]}), 200
+
+        return jsonify({'status': 'error', 'message': 'Alert not found'}), 404
+    except Exception as e:
+        logger.error(f"Error dismissing alert: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/v1/api/finca/alerts/<alert_id>/snooze', methods=['POST'])
+@token_required
+def finca_snooze_alert(current_user, alert_id):
+    try:
+        data = request.json or {}
+        duration = int(data.get('duration_minutes', 60))
+        snooze_until = (datetime.utcnow() + timedelta(minutes=duration)).isoformat()
+
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            alert_db = db.query(Alert).filter(Alert.id == alert_id).first()
+            if alert_db:
+                alert_db.status = 'SNOOZED'
+                alert_db.resolution_notes = f'Snoozed until {snooze_until}'
+                db.commit()
+                db.refresh(alert_db)
+                db.close()
+
+                finca_alerts[alert_id] = {
+                    'id': alert_db.id,
+                    'status': alert_db.status,
+                    'snoozed_until': snooze_until
+                }
+                return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+        except Exception as e:
+            logger.warning(f"SQLite snooze failed: {e}")
+
+        if alert_id in finca_alerts:
+            finca_alerts[alert_id]['status'] = 'SNOOZED'
+            finca_alerts[alert_id]['snoozed_until'] = snooze_until
+            return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+
+        return jsonify({'status': 'error', 'message': 'Alert not found'}), 404
+    except Exception as e:
+        logger.error(f"Error snoozing alert: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/v1/api/finca/alerts/<alert_id>/escalate', methods=['POST'])
+@token_required
+def finca_escalate_alert(current_user, alert_id):
+    try:
+        data = request.json or {}
+        priority = data.get('priority', 'HIGH')
+        reason = data.get('reason', '')
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            alert_db = db.query(Alert).filter(Alert.id == alert_id).first()
+            if alert_db:
+                alert_db.status = 'ESCALATED'
+                alert_db.resolution_notes = f'Escalated to {priority}: {reason}'
+                db.commit()
+                db.refresh(alert_db)
+                db.close()
+
+                finca_alerts[alert_id] = {
+                    'id': alert_db.id,
+                    'status': alert_db.status,
+                    'resolution_notes': alert_db.resolution_notes
+                }
+                return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+        except Exception as e:
+            logger.warning(f"SQLite alert escalate failed: {e}")
+
+        if alert_id in finca_alerts:
+            finca_alerts[alert_id]['status'] = 'ESCALATED'
+            finca_alerts[alert_id]['resolution_notes'] = f'Escalated to {priority}: {reason}'
+            return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+
+        return jsonify({'status': 'error', 'message': 'Alert not found'}), 404
+    except Exception as e:
+        logger.error(f"Error escalating alert: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/v1/api/finca/alerts/<alert_id>/flag_review', methods=['POST'])
+@token_required
+def finca_flag_alert_review(current_user, alert_id):
+    try:
+        data = request.json or {}
+        review_reason = data.get('review_reason', 'Flagged for review')
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            alert_db = db.query(Alert).filter(Alert.id == alert_id).first()
+            if alert_db:
+                alert_db.resolution_notes = (alert_db.resolution_notes or '') + f' | Flagged: {review_reason}'
+                db.commit()
+                db.refresh(alert_db)
+                db.close()
+
+                finca_alerts[alert_id] = {'id': alert_db.id, 'status': alert_db.status, 'resolution_notes': alert_db.resolution_notes}
+                return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+        except Exception as e:
+            logger.warning(f"SQLite flag review failed: {e}")
+
+        if alert_id in finca_alerts:
+            finca_alerts[alert_id]['resolution_notes'] = (finca_alerts[alert_id].get('resolution_notes') or '') + f' | Flagged: {review_reason}'
+            return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+
+        return jsonify({'status': 'error', 'message': 'Alert not found'}), 404
+    except Exception as e:
+        logger.error(f"Error flagging alert for review: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/v1/api/finca/alerts/<alert_id>/block', methods=['POST'])
+@token_required
+def finca_block_alert(current_user, alert_id):
+    try:
+        data = request.json or {}
+        transaction_id = data.get('transaction_id')
+        reason = data.get('reason', 'Blocked by analyst')
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            alert_db = db.query(Alert).filter(Alert.id == alert_id).first()
+            if alert_db:
+                alert_db.decision = 'BLOCK'
+                alert_db.status = 'BLOCKED'
+                alert_db.resolution_notes = reason
+                db.commit()
+                db.refresh(alert_db)
+                db.close()
+
+                finca_alerts[alert_id] = {'id': alert_db.id, 'status': alert_db.status, 'decision': alert_db.decision}
+                return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+        except Exception as e:
+            logger.warning(f"SQLite block failed: {e}")
+
+        if alert_id in finca_alerts:
+            finca_alerts[alert_id]['decision'] = 'BLOCK'
+            finca_alerts[alert_id]['status'] = 'BLOCKED'
+            finca_alerts[alert_id]['resolution_notes'] = reason
+            return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+
+        return jsonify({'status': 'error', 'message': 'Alert not found'}), 404
+    except Exception as e:
+        logger.error(f"Error blocking alert: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/v1/api/finca/alerts/<alert_id>/challenge', methods=['POST'])
+@token_required
+def finca_challenge_alert(current_user, alert_id):
+    try:
+        data = request.json or {}
+        message = data.get('message', 'Challenge initiated')
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            alert_db = db.query(Alert).filter(Alert.id == alert_id).first()
+            if alert_db:
+                alert_db.decision = 'CHALLENGE'
+                alert_db.status = 'CHALLENGED'
+                alert_db.resolution_notes = message
+                db.commit()
+                db.refresh(alert_db)
+                db.close()
+
+                finca_alerts[alert_id] = {'id': alert_db.id, 'status': alert_db.status, 'decision': alert_db.decision}
+                return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+        except Exception as e:
+            logger.warning(f"SQLite challenge failed: {e}")
+
+        if alert_id in finca_alerts:
+            finca_alerts[alert_id]['decision'] = 'CHALLENGE'
+            finca_alerts[alert_id]['status'] = 'CHALLENGED'
+            finca_alerts[alert_id]['resolution_notes'] = message
+            return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+
+        return jsonify({'status': 'error', 'message': 'Alert not found'}), 404
+    except Exception as e:
+        logger.error(f"Error challenging alert: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 @app.route('/v1/api/finca/cases/<case_id>/assign', methods=['POST'])
