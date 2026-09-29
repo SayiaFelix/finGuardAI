@@ -11,7 +11,7 @@ import random
 import string
 import hashlib
 import ipaddress
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import Counter
 
 import concurrent.futures
@@ -156,7 +156,46 @@ def convert_numpy_types(obj):
         return bool(obj)
     else:
         return obj
-  
+
+
+def normalize_transaction_response(tx):
+    """Ensure transaction payloads expose amount and customer name aliases expected by the frontend."""
+    if not isinstance(tx, dict):
+        return tx
+
+    normalized = dict(tx)
+    details = dict(normalized.get('transaction_details') or {})
+    amount = (
+        details.get('Transaction_Amount')
+        or details.get('transaction_amount')
+        or details.get('amount')
+        or 0
+    )
+    details['Transaction_Amount'] = amount
+    details['transaction_amount'] = amount
+    details['amount'] = amount
+    details['finca_transaction_amount'] = amount
+    channel_value = normalized.get('channel') or details.get('channel') or 'MOBILE_BANKING'
+    direction_value = normalized.get('direction') or details.get('direction') or 'OUTGOING'
+    details['channel'] = channel_value
+    details['direction'] = direction_value.upper()
+    normalized['channel'] = channel_value
+    normalized['direction'] = direction_value.upper()
+    normalized['transaction_details'] = details
+
+    customer = dict(normalized.get('customer_info') or {})
+    if customer.get('customer_name') is None and customer.get('Customer_Name') is not None:
+        customer['customer_name'] = customer['Customer_Name']
+    if customer.get('Customer_Name') is None and customer.get('customer_name') is not None:
+        customer['Customer_Name'] = customer['customer_name']
+    if customer.get('customer_id') is None and customer.get('Customer_ID') is not None:
+        customer['customer_id'] = customer['Customer_ID']
+    if customer.get('Customer_ID') is None and customer.get('customer_id') is not None:
+        customer['Customer_ID'] = customer['customer_id']
+    normalized['customer_info'] = customer
+    return normalized
+
+
 def get_nairobi_time():
     """Returns current time in Africa/Nairobi timezone"""
     nairobi_tz = pytz.timezone('Africa/Nairobi')
@@ -1434,18 +1473,26 @@ def transactions_endpoint(current_user):
                 db.close()
                 
                 if tx:
+                    status_info = {
+                        'current': tx.status or 'Open',
+                        'history': tx.status_history or []
+                    }
+
                     cleaned_transaction = {
                         'transaction_id': tx.id,
                         'timestamp': tx.timestamp.isoformat(),
                         'risk_score': tx.risk_score,
                         'risk_category': tx.risk_category,
+                        'channel': getattr(tx, 'channel', None) or 'MOBILE_BANKING',
+                        'direction': getattr(tx, 'direction', None) or 'OUTGOING',
                         'transaction_details': tx.transaction_details,
                         'customer_info': tx.customer_info,
                         'recommended_action': tx.recommended_action,
                         'explanations': tx.explanations,
                         'llm_status': tx.llm_status,
                         'feedback_effect': tx.feedback_effect,
-                        'status_info': tx.status
+                        'status': tx.status or 'Open',
+                        'status_info': status_info
                     }
                     
                     risk_category = cleaned_transaction.get('risk_category', 'Unknown')
@@ -1481,7 +1528,7 @@ def transactions_endpoint(current_user):
                         'status_info': cleaned_transaction.get('status_info', {})
                     }
                     
-                    final_response = convert_numpy_types(response_data)
+                    final_response = normalize_transaction_response(convert_numpy_types(response_data))
                     return jsonify(final_response), 200
                 else:
                     # Fallback to pickle
@@ -1552,11 +1599,17 @@ def transactions_endpoint(current_user):
                 
                 tx_list = []
                 for tx in transactions:
-                    tx_list.append({
+                    status_info = {
+                        'current': tx.status or 'Open',
+                        'history': tx.status_history or []
+                    }
+                    tx_payload = {
                         'transaction_id': tx.id,
                         'timestamp': tx.timestamp.isoformat(),
                         'risk_score': tx.risk_score,
                         'risk_category': tx.risk_category,
+                        'channel': getattr(tx, 'channel', None) or 'MOBILE_BANKING',
+                        'direction': getattr(tx, 'direction', None) or 'OUTGOING',
                         'transaction_details': tx.transaction_details,
                         'customer_info': tx.customer_info,
                         'recommended_action': tx.recommended_action,
@@ -1566,8 +1619,10 @@ def transactions_endpoint(current_user):
                         'threshold_used': tx.threshold_used,
                         'feedback_used': tx.feedback_used,
                         'feedback_effect': tx.feedback_effect,
-                        'status_info': tx.status
-                    })
+                        'status': tx.status or 'Open',
+                        'status_info': status_info
+                    }
+                    tx_list.append(normalize_transaction_response(tx_payload))
                 
                 response_data = {
                     'status': 'success',
@@ -1599,7 +1654,7 @@ def transactions_endpoint(current_user):
                 tx_list = []
                 for tx_id, tx_data in transactions.items():
                     cleaned_tx_data = convert_numpy_types(tx_data)
-                    tx_list.append({
+                    tx_payload = {
                         'transaction_id': tx_id,
                         'timestamp': cleaned_tx_data.get('timestamp', ''),
                         'risk_score': cleaned_tx_data.get('risk_score', 0),
@@ -1609,7 +1664,8 @@ def transactions_endpoint(current_user):
                         'recommended_action': cleaned_tx_data.get('recommended_action', ''),
                         'explanations': cleaned_tx_data.get('explanations', {}),
                         'llm_status': cleaned_tx_data.get('llm_status', 'disconnected')
-                    })
+                    }
+                    tx_list.append(normalize_transaction_response(tx_payload))
                 
                 tx_list.sort(key=lambda x: x['timestamp'], reverse=True)
                 total = len(tx_list)
@@ -3521,99 +3577,6 @@ def generate_transactions_for_simulation(count=20, fraud_ratio=0.3):
     
     return transactions
 
-# def generate_transactions_for_simulation(count=20, fraud_ratio=0.3):
-#     """
-#     Generate transactions in EXACTLY the same format as your API expects
-#     """
-#     import random
-#     from datetime import datetime
-    
-#     # Customer data
-#     customers = [
-#         {'id': 'CUST-001', 'name': 'John Okello', 'location': 'Kampala', 'avg': 180000, 'phone': '+256-712-345-678', 'email': 'john.okello@email.com'},
-#         {'id': 'CUST-002', 'name': 'Sarah Atim', 'location': 'Kampala', 'avg': 250000, 'phone': '+256-713-456-789', 'email': 'sarah.atim@email.com'},
-#         {'id': 'CUST-003', 'name': 'Peter Ochieng', 'location': 'Nairobi', 'avg': 320000, 'phone': '+254-712-345-678', 'email': 'peter.ochieng@email.com'},
-#         {'id': 'CUST-004', 'name': 'Grace Mbugua', 'location': 'Mombasa', 'avg': 150000, 'phone': '+254-713-456-789', 'email': 'grace.mbugua@email.com'},
-#         {'id': 'CUST-005', 'name': 'David Mwesigwa', 'location': 'Kampala', 'avg': 450000, 'phone': '+256-714-567-890', 'email': 'david.mwesigwa@email.com'},
-#         {'id': 'CUST-006', 'name': 'Faith Akinyi', 'location': 'Kisumu', 'avg': 95000, 'phone': '+254-714-567-890', 'email': 'faith.akinyi@email.com'},
-#         {'id': 'CUST-007', 'name': 'James Omondi', 'location': 'Nakuru', 'avg': 210000, 'phone': '+254-715-678-901', 'email': 'james.omondi@email.com'},
-#         {'id': 'CUST-008', 'name': 'Mary Wanjiru', 'location': 'Nairobi', 'avg': 380000, 'phone': '+254-716-789-012', 'email': 'mary.wanjiru@email.com'},
-#         {'id': 'CUST-009', 'name': 'Robert Kiprop', 'location': 'Eldoret', 'avg': 175000, 'phone': '+254-717-890-123', 'email': 'robert.kiprop@email.com'},
-#         {'id': 'CUST-010', 'name': 'Jane Auma', 'location': 'Kampala', 'avg': 120000, 'phone': '+256-715-678-901', 'email': 'jane.auma@email.com'}
-#     ]
-    
-#     devices = ['iPhone', 'Samsung', 'MacBook', 'Unknown', 'Huawei', 'Tecno']
-#     locations = ['Kampala', 'Nairobi', 'Mombasa', 'Kisumu', 'Entebbe', 'International', 'Nakuru', 'Eldoret']
-#     channels = ['MOBILE_BANKING', 'INTERNET_BANKING', 'ATM', 'AGENCY', 'USSD']
-    
-#     transactions = []
-    
-#     for i in range(count):
-#         customer = random.choice(customers)
-        
-#         # Determine if fraud
-#         is_fraud = random.random() < fraud_ratio
-        
-#         if is_fraud:
-#             # Fraudulent transaction
-#             amount = random.randint(2000000, 15000000)
-#             device = random.choice(['Unknown', 'Unknown', 'Unknown', 'iPhone'])
-#             location = random.choice(['International', 'International', 'Nairobi', 'Mombasa'])
-#             channel = random.choice(['MOBILE_BANKING', 'INTERNET_BANKING'])
-#             hour = random.choice([1, 2, 3, 4, 5, 23, 0])
-#             frequency = random.randint(5, 15)
-#             is_weekend = 1
-#             transaction_type = 'Transfer'
-#             ip = f"{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}"
-#         else:
-#             # Normal transaction
-#             amount = int(random.gauss(customer['avg'], customer['avg'] * 0.3))
-#             amount = max(10000, min(amount, 2000000))
-#             device = random.choice(['iPhone', 'Samsung', 'MacBook', 'Huawei', 'Tecno'])
-#             location = customer['location']
-#             channel = random.choice(channels)
-#             hour = random.randint(8, 21)
-#             frequency = random.randint(1, 3)
-#             is_weekend = 1 if random.random() < 0.15 else 0
-#             transaction_type = random.choice(['Transfer', 'Withdrawal', 'Deposit', 'Payment'])
-#             ip = f"192.168.{random.randint(1, 255)}.{random.randint(1, 255)}"
-        
-#         # Build transaction
-#         tx = {
-#             # Required fields
-#             'customer_id': customer['id'],
-#             'customer_name': customer['name'],
-#             'customer_email': customer['email'],
-#             'customer_phone': customer['phone'],
-#             'transaction_amount': amount,
-            
-#             # FINCA-specific fields
-#             'device_type': device,
-#             'location': location,
-#             'channel': channel,
-            
-#             # Additional fields
-#             'ip_address': ip,
-#             'tx_count_last_hour': frequency,
-#             'account_age_days': random.randint(30, 1095),
-#             'avg_transaction_amount': customer['avg'],
-#             'Transaction_Hour': hour,
-#             'Is_Weekend': is_weekend,
-#             'Day_of_Week': random.randint(0, 6),
-            
-#             # Transaction type
-#             'transaction_type': transaction_type,
-            
-#             # Metadata for simulation tracking
-#             '_simulated': True,
-#             '_is_fraud': is_fraud,
-#             '_customer_avg': customer['avg']
-#         }
-        
-#         transactions.append(tx)
-    
-#     return transactions
-
 @app.route('/v1/api/finca/simulate_batch/quick', methods=['GET'])
 @token_required
 def simulate_batch_quick(current_user):
@@ -4114,6 +4077,121 @@ def finca_list_cases(current_user):
             'message': str(e)
         }), 500
 
+
+# ---------------------------------------------------------------------------
+# Compatibility wrappers for frontend (paths expected by the Angular app)
+# These delegate to the existing handlers above to avoid duplicating logic.
+# ---------------------------------------------------------------------------
+
+
+@app.route('/v1/api/finca/cases/create', methods=['POST'])
+def finca_create_case_compat():
+    return finca_create_case()
+
+
+@app.route('/v1/api/finca/cases/list', methods=['POST'])
+def finca_list_cases_compat():
+    return finca_list_cases()
+
+
+@app.route('/v1/api/finca/cases/<case_id>', methods=['PUT'])
+def finca_update_case_compat(case_id):
+    return finca_update_case(case_id)
+
+
+@app.route('/v1/api/finca/cases/assign/<case_id>', methods=['POST'])
+def finca_assign_case_compat(case_id):
+    return finca_assign_case(case_id)
+
+
+@app.route('/v1/api/finca/cases/notes/<case_id>', methods=['POST'])
+def finca_add_note_compat(case_id):
+    return finca_add_note(case_id)
+
+
+@app.route('/v1/api/finca/cases/resolve/<case_id>', methods=['POST'])
+def finca_resolve_case_compat(case_id):
+    return finca_resolve_case(case_id)
+
+
+@app.route('/v1/api/finca/cases/escalate/<case_id>', methods=['POST'])
+@token_required
+def finca_escalate_case(current_user, case_id):
+    """Escalate a case (frontend expects this endpoint)."""
+    try:
+        data = request.json or {}
+        level = data.get('level', 'ESCALATED')
+        reason = data.get('reason', '')
+        analyst = data.get('analyst', getattr(current_user, 'username', 'System'))
+
+        # Try SQLite first
+        try:
+            from database.db_manager import SessionLocal, Case
+            db = SessionLocal()
+            case_db = db.query(Case).filter(Case.id == case_id).first()
+
+            if case_db:
+                case_db.priority = level
+                timeline = case_db.timeline or []
+                timeline.append({
+                    'timestamp': get_nairobi_time(),
+                    'action': f'Escalated to {level}: {reason}',
+                    'actor': analyst
+                })
+                case_db.timeline = timeline
+                case_db.updated_at = datetime.utcnow()
+
+                db.commit()
+                db.refresh(case_db)
+                db.close()
+
+                case = {
+                    'id': case_db.id,
+                    'priority': case_db.priority,
+                    'timeline': case_db.timeline,
+                    'updated_at': case_db.updated_at.isoformat() if case_db.updated_at else None
+                }
+
+                if case_id in finca_cases:
+                    finca_cases[case_id]['priority'] = case_db.priority
+                    finca_cases[case_id]['timeline'] = case_db.timeline
+
+                return jsonify({
+                    'status': 'success',
+                    'message': f'Case escalated to {level}',
+                    'case': case
+                }), 200
+        except Exception as e:
+            logger.warning(f"SQLite escalate failed: {e}")
+
+        # Fallback to in-memory
+        if case_id in finca_cases:
+            case = finca_cases[case_id]
+            case['priority'] = level
+            case['timeline'].append({
+                'timestamp': get_nairobi_time(),
+                'action': f'Escalated to {level}: {reason}',
+                'actor': analyst
+            })
+
+            return jsonify({
+                'status': 'success',
+                'message': f'Case escalated to {level} (memory)',
+                'case': case
+            }), 200
+
+        return jsonify({
+            'status': 'error',
+            'message': 'Case not found'
+        }), 404
+
+    except Exception as e:
+        logger.error(f"Error escalating case: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
 @app.route('/v1/api/finca/alerts/<alert_id>/read', methods=['POST'])
 @token_required
 def finca_mark_alert_read(current_user, alert_id):
@@ -4315,6 +4393,300 @@ def finca_assign_alert(current_user, alert_id):
             'status': 'error',
             'message': str(e)
         }), 500
+
+@app.route('/v1/api/finca/alerts/mark_read', methods=['POST'])
+@token_required
+def finca_mark_alerts_read_bulk(current_user):
+    """Mark multiple alerts as read"""
+    try:
+        data = request.json or {}
+        alert_ids = data.get('alert_ids', [])
+        if not isinstance(alert_ids, list) or not alert_ids:
+            return jsonify({'status': 'error', 'message': 'alert_ids required'}), 400
+
+        updated = 0
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            for aid in alert_ids:
+                alert_db = db.query(Alert).filter(Alert.id == aid).first()
+                if alert_db:
+                    if alert_db.status == 'NEW':
+                        alert_db.status = 'READ'
+                    # mark read flag for frontend convenience
+                    # No dedicated column; handled in response
+                    updated += 1
+            db.commit()
+            db.close()
+        except Exception as e:
+            logger.warning(f"SQLite bulk mark read failed: {e}")
+            for aid in alert_ids:
+                if aid in finca_alerts:
+                    finca_alerts[aid]['read'] = True
+                    if finca_alerts[aid].get('status') == 'NEW':
+                        finca_alerts[aid]['status'] = 'READ'
+                    updated += 1
+
+        return jsonify({'status': 'success', 'updated': updated}), 200
+    except Exception as e:
+        logger.error(f"Error bulk marking alerts read: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/v1/api/finca/alerts/dismiss', methods=['POST'])
+@token_required
+def finca_dismiss_alerts_bulk(current_user):
+    """Bulk dismiss alerts (set status to DISMISSED)"""
+    try:
+        data = request.json or {}
+        alert_ids = data.get('alert_ids', [])
+        reason = data.get('reason', 'Dismissed by analyst')
+        if not isinstance(alert_ids, list) or not alert_ids:
+            return jsonify({'status': 'error', 'message': 'alert_ids required'}), 400
+
+        updated = 0
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            for aid in alert_ids:
+                alert_db = db.query(Alert).filter(Alert.id == aid).first()
+                if alert_db:
+                    alert_db.status = 'DISMISSED'
+                    alert_db.resolution_notes = reason
+                    updated += 1
+            db.commit()
+            db.close()
+        except Exception as e:
+            logger.warning(f"SQLite bulk dismiss failed: {e}")
+            for aid in alert_ids:
+                if aid in finca_alerts:
+                    finca_alerts[aid]['status'] = 'DISMISSED'
+                    finca_alerts[aid]['resolution_notes'] = reason
+                    updated += 1
+
+        return jsonify({'status': 'success', 'updated': updated}), 200
+    except Exception as e:
+        logger.error(f"Error bulk dismissing alerts: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/v1/api/finca/alerts/<alert_id>/dismiss', methods=['POST'])
+@token_required
+def finca_dismiss_alert(current_user, alert_id):
+    try:
+        data = request.json or {}
+        reason = data.get('reason', 'Dismissed by analyst')
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            alert_db = db.query(Alert).filter(Alert.id == alert_id).first()
+            if alert_db:
+                alert_db.status = 'DISMISSED'
+                alert_db.resolution_notes = reason
+                db.commit()
+                db.refresh(alert_db)
+                db.close()
+
+                # Update in-memory
+                finca_alerts[alert_id] = {
+                    'id': alert_db.id,
+                    'status': alert_db.status,
+                    'resolution_notes': alert_db.resolution_notes
+                }
+
+                return jsonify({'status': 'success', 'message': 'Alert dismissed', 'alert': finca_alerts[alert_id]}), 200
+        except Exception as e:
+            logger.warning(f"SQLite dismiss failed: {e}")
+
+        if alert_id in finca_alerts:
+            finca_alerts[alert_id]['status'] = 'DISMISSED'
+            finca_alerts[alert_id]['resolution_notes'] = reason
+            return jsonify({'status': 'success', 'message': 'Alert dismissed (memory)', 'alert': finca_alerts[alert_id]}), 200
+
+        return jsonify({'status': 'error', 'message': 'Alert not found'}), 404
+    except Exception as e:
+        logger.error(f"Error dismissing alert: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/v1/api/finca/alerts/<alert_id>/snooze', methods=['POST'])
+@token_required
+def finca_snooze_alert(current_user, alert_id):
+    try:
+        data = request.json or {}
+        duration = int(data.get('duration_minutes', 60))
+        snooze_until = (datetime.utcnow() + timedelta(minutes=duration)).isoformat()
+
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            alert_db = db.query(Alert).filter(Alert.id == alert_id).first()
+            if alert_db:
+                alert_db.status = 'SNOOZED'
+                alert_db.resolution_notes = f'Snoozed until {snooze_until}'
+                db.commit()
+                db.refresh(alert_db)
+                db.close()
+
+                finca_alerts[alert_id] = {
+                    'id': alert_db.id,
+                    'status': alert_db.status,
+                    'snoozed_until': snooze_until
+                }
+                return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+        except Exception as e:
+            logger.warning(f"SQLite snooze failed: {e}")
+
+        if alert_id in finca_alerts:
+            finca_alerts[alert_id]['status'] = 'SNOOZED'
+            finca_alerts[alert_id]['snoozed_until'] = snooze_until
+            return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+
+        return jsonify({'status': 'error', 'message': 'Alert not found'}), 404
+    except Exception as e:
+        logger.error(f"Error snoozing alert: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/v1/api/finca/alerts/<alert_id>/escalate', methods=['POST'])
+@token_required
+def finca_escalate_alert(current_user, alert_id):
+    try:
+        data = request.json or {}
+        priority = data.get('priority', 'HIGH')
+        reason = data.get('reason', '')
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            alert_db = db.query(Alert).filter(Alert.id == alert_id).first()
+            if alert_db:
+                alert_db.status = 'ESCALATED'
+                alert_db.resolution_notes = f'Escalated to {priority}: {reason}'
+                db.commit()
+                db.refresh(alert_db)
+                db.close()
+
+                finca_alerts[alert_id] = {
+                    'id': alert_db.id,
+                    'status': alert_db.status,
+                    'resolution_notes': alert_db.resolution_notes
+                }
+                return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+        except Exception as e:
+            logger.warning(f"SQLite alert escalate failed: {e}")
+
+        if alert_id in finca_alerts:
+            finca_alerts[alert_id]['status'] = 'ESCALATED'
+            finca_alerts[alert_id]['resolution_notes'] = f'Escalated to {priority}: {reason}'
+            return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+
+        return jsonify({'status': 'error', 'message': 'Alert not found'}), 404
+    except Exception as e:
+        logger.error(f"Error escalating alert: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/v1/api/finca/alerts/<alert_id>/flag_review', methods=['POST'])
+@token_required
+def finca_flag_alert_review(current_user, alert_id):
+    try:
+        data = request.json or {}
+        review_reason = data.get('review_reason', 'Flagged for review')
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            alert_db = db.query(Alert).filter(Alert.id == alert_id).first()
+            if alert_db:
+                alert_db.resolution_notes = (alert_db.resolution_notes or '') + f' | Flagged: {review_reason}'
+                db.commit()
+                db.refresh(alert_db)
+                db.close()
+
+                finca_alerts[alert_id] = {'id': alert_db.id, 'status': alert_db.status, 'resolution_notes': alert_db.resolution_notes}
+                return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+        except Exception as e:
+            logger.warning(f"SQLite flag review failed: {e}")
+
+        if alert_id in finca_alerts:
+            finca_alerts[alert_id]['resolution_notes'] = (finca_alerts[alert_id].get('resolution_notes') or '') + f' | Flagged: {review_reason}'
+            return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+
+        return jsonify({'status': 'error', 'message': 'Alert not found'}), 404
+    except Exception as e:
+        logger.error(f"Error flagging alert for review: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/v1/api/finca/alerts/<alert_id>/block', methods=['POST'])
+@token_required
+def finca_block_alert(current_user, alert_id):
+    try:
+        data = request.json or {}
+        transaction_id = data.get('transaction_id')
+        reason = data.get('reason', 'Blocked by analyst')
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            alert_db = db.query(Alert).filter(Alert.id == alert_id).first()
+            if alert_db:
+                alert_db.decision = 'BLOCK'
+                alert_db.status = 'BLOCKED'
+                alert_db.resolution_notes = reason
+                db.commit()
+                db.refresh(alert_db)
+                db.close()
+
+                finca_alerts[alert_id] = {'id': alert_db.id, 'status': alert_db.status, 'decision': alert_db.decision}
+                return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+        except Exception as e:
+            logger.warning(f"SQLite block failed: {e}")
+
+        if alert_id in finca_alerts:
+            finca_alerts[alert_id]['decision'] = 'BLOCK'
+            finca_alerts[alert_id]['status'] = 'BLOCKED'
+            finca_alerts[alert_id]['resolution_notes'] = reason
+            return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+
+        return jsonify({'status': 'error', 'message': 'Alert not found'}), 404
+    except Exception as e:
+        logger.error(f"Error blocking alert: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/v1/api/finca/alerts/<alert_id>/challenge', methods=['POST'])
+@token_required
+def finca_challenge_alert(current_user, alert_id):
+    try:
+        data = request.json or {}
+        message = data.get('message', 'Challenge initiated')
+        try:
+            from database.db_manager import SessionLocal, Alert
+            db = SessionLocal()
+            alert_db = db.query(Alert).filter(Alert.id == alert_id).first()
+            if alert_db:
+                alert_db.decision = 'CHALLENGE'
+                alert_db.status = 'CHALLENGED'
+                alert_db.resolution_notes = message
+                db.commit()
+                db.refresh(alert_db)
+                db.close()
+
+                finca_alerts[alert_id] = {'id': alert_db.id, 'status': alert_db.status, 'decision': alert_db.decision}
+                return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+        except Exception as e:
+            logger.warning(f"SQLite challenge failed: {e}")
+
+        if alert_id in finca_alerts:
+            finca_alerts[alert_id]['decision'] = 'CHALLENGE'
+            finca_alerts[alert_id]['status'] = 'CHALLENGED'
+            finca_alerts[alert_id]['resolution_notes'] = message
+            return jsonify({'status': 'success', 'alert': finca_alerts[alert_id]}), 200
+
+        return jsonify({'status': 'error', 'message': 'Alert not found'}), 404
+    except Exception as e:
+        logger.error(f"Error challenging alert: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 
 @app.route('/v1/api/finca/cases/<case_id>/assign', methods=['POST'])
 @token_required
